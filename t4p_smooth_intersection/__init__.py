@@ -261,11 +261,16 @@ def _dissolve_degenerate_and_triangulate(
     dissolve_result = bmesh.ops.dissolve_degenerate(
         bm, edges=edges, dist=threshold
     )
-    changed = bool(
-        dissolve_result.get("region_edges")
-        or dissolve_result.get("region_faces")
-        or dissolve_result.get("region_verts")
-    )
+    # ``bmesh.ops.dissolve_degenerate`` may return ``None`` in some edge cases.
+    result_get = getattr(dissolve_result, "get", None)
+    if result_get is None:
+        changed = False
+    else:
+        changed = bool(
+            result_get("region_edges")
+            or result_get("region_faces")
+            or result_get("region_verts")
+        )
 
     triangulated = _triangulate_edit_bmesh(bm)
     return changed or triangulated
