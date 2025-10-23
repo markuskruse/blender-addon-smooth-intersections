@@ -5,7 +5,11 @@ from __future__ import annotations
 import bpy
 from bpy.types import Panel
 
-from .ops import SMOOTH_OPERATOR_IDNAME, TRIANGULATE_OPERATOR_IDNAME
+from .ops import (
+    FILTER_OPERATOR_IDNAME,
+    SMOOTH_OPERATOR_IDNAME,
+    TRIANGULATE_OPERATOR_IDNAME,
+)
 
 
 class T4P_PT_main_panel(Panel):
@@ -19,12 +23,21 @@ class T4P_PT_main_panel(Panel):
 
     def draw(self, context):
         layout = self.layout
-        layout.operator(
+
+        col = layout.column()
+        col.enabled = context.mode == "OBJECT" and bool(context.selected_objects)
+
+        col.operator(
             SMOOTH_OPERATOR_IDNAME,
             icon="MOD_BOOLEAN",
             text="Smooth int",
         )
-        layout.operator(
+        col.operator(
+            FILTER_OPERATOR_IDNAME,
+            icon="FILTER",
+            text="Filter intersections",
+        )
+        col.operator(
             TRIANGULATE_OPERATOR_IDNAME,
             icon="MOD_TRIANGULATE",
             text="Triangulate all",

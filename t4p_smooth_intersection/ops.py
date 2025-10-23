@@ -10,39 +10,8 @@ from bpy.types import Operator
 from mathutils.bvhtree import BVHTree
 
 SMOOTH_OPERATOR_IDNAME = "t4p_smooth_intersection.smooth_intersections"
+FILTER_OPERATOR_IDNAME = "t4p_smooth_intersection.filter_intersections"
 TRIANGULATE_OPERATOR_IDNAME = "t4p_smooth_intersection.triangulate_selected"
-
-
-def _mode_from_context(mode: str) -> str:
-    """Convert a context mode string to a value accepted by ``mode_set``."""
-
-    if mode == "OBJECT":
-        return "OBJECT"
-    if mode.startswith("EDIT_"):
-        return "EDIT"
-    if mode == "POSE":
-        return "POSE"
-    if mode == "SCULPT":
-        return "SCULPT"
-    if mode == "PAINT_WEIGHT":
-        return "WEIGHT_PAINT"
-    if mode == "PAINT_VERTEX":
-        return "VERTEX_PAINT"
-    if mode == "PAINT_TEXTURE":
-        return "TEXTURE_PAINT"
-    if mode == "PARTICLE":
-        return "PARTICLE_EDIT"
-    if mode == "PAINT_GPENCIL":
-        return "PAINT_GPENCIL"
-    if mode == "SCULPT_GPENCIL":
-        return "SCULPT_GPENCIL"
-    if mode == "EDIT_GPENCIL":
-        return "EDIT_GPENCIL"
-    if mode == "WEIGHT_GPENCIL":
-        return "WEIGHT_GPENCIL"
-    if mode == "VERTEX_GPENCIL":
-        return "VERTEX_GPENCIL"
-    return "OBJECT"
 
 
 def _select_intersecting_faces(mesh: bpy.types.Mesh) -> int:
@@ -92,6 +61,46 @@ def _shrink_selection(times: int) -> None:
         bpy.ops.mesh.select_less()
 
 
+def _mesh_has_intersections(mesh: bpy.types.Mesh) -> bool:
+    """Return ``True`` when the provided mesh contains self-intersections."""
+
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(mesh)
+        if not bm.faces:
+            return False
+
+        faces = list(bm.faces)
+        if not faces:
+            return False
+
+        bmesh.ops.triangulate(bm, faces=faces)
+        bm.faces.ensure_lookup_table()
+
+        tree = BVHTree.FromBMesh(bm)
+        if tree is None:
+            return False
+
+        for index_a, index_b in tree.overlap(tree):
+            if index_a == index_b or index_b < index_a:
+                continue
+
+            face_a = bm.faces[index_a]
+            face_b = bm.faces[index_b]
+
+            verts_a = {vert.index for vert in face_a.verts}
+            verts_b = {vert.index for vert in face_b.verts}
+
+            if verts_a & verts_b:
+                continue
+
+            return True
+    finally:
+        bm.free()
+
+    return False
+
+
 def _process_object(obj: bpy.types.Object) -> int:
     """Run the smoothing workflow on a single mesh object.
 
@@ -133,19 +142,12 @@ class T4P_OT_smooth_intersections(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        initial_mode = context.mode
+        if context.mode != "OBJECT":
+            self.report({"ERROR"}, "Switch to Object mode to smooth intersections.")
+            return {"CANCELLED"}
+
         initial_active = context.view_layer.objects.active
         initial_selection = list(context.selected_objects)
-
-        if initial_mode != "OBJECT":
-            try:
-                bpy.ops.object.mode_set(mode="OBJECT")
-            except RuntimeError:
-                pass
-
-        if context.mode != "OBJECT":
-            self.report({"ERROR"}, "Unable to switch to Object mode for smoothing.")
-            return {"CANCELLED"}
 
         bpy.ops.object.select_all(action="DESELECT")
 
@@ -179,13 +181,8 @@ class T4P_OT_smooth_intersections(Operator):
 
         if initial_active and context.scene.objects.get(initial_active.name) is not None:
             context.view_layer.objects.active = initial_active
-
-        target_mode = _mode_from_context(initial_mode)
-        if target_mode != "OBJECT" and initial_active:
-            try:
-                bpy.ops.object.mode_set(mode=target_mode)
-            except RuntimeError:
-                pass
+        elif initial_active is None:
+            context.view_layer.objects.active = None
 
         if not smoothed_objects:
             self.report({"INFO"}, "No intersecting faces were found.")
@@ -194,6 +191,62 @@ class T4P_OT_smooth_intersections(Operator):
                 {"INFO"},
                 "Smoothed intersections on: {}".format(
                     ", ".join(smoothed_objects)
+                ),
+            )
+
+        return {"FINISHED"}
+
+
+class T4P_OT_filter_intersections(Operator):
+    """Keep selected only the mesh objects that have intersections."""
+
+    bl_idname = FILTER_OPERATOR_IDNAME
+    bl_label = "Filter Intersections"
+    bl_description = "Deselect selected objects without self-intersections"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        if context.mode != "OBJECT":
+            self.report({"ERROR"}, "Switch to Object mode to filter intersections.")
+            return {"CANCELLED"}
+
+        initial_active = context.view_layer.objects.active
+
+        selected_objects = list(context.selected_objects)
+        if not selected_objects:
+            self.report({"INFO"}, "No objects selected.")
+            return {"FINISHED"}
+
+        objects_with_intersections: list[bpy.types.Object] = []
+
+        for obj in selected_objects:
+            has_intersections = False
+            if obj.type == "MESH" and obj.data is not None:
+                try:
+                    has_intersections = _mesh_has_intersections(obj.data)
+                except RuntimeError:
+                    has_intersections = False
+
+            obj.select_set(has_intersections)
+
+            if has_intersections:
+                objects_with_intersections.append(obj)
+
+        new_active = None
+        if initial_active and initial_active in objects_with_intersections:
+            new_active = initial_active
+        elif objects_with_intersections:
+            new_active = objects_with_intersections[0]
+
+        context.view_layer.objects.active = new_active
+
+        if not objects_with_intersections:
+            self.report({"INFO"}, "No self-intersections detected on selected objects.")
+        else:
+            self.report(
+                {"INFO"},
+                "Objects with self-intersections: {}".format(
+                    ", ".join(obj.name for obj in objects_with_intersections)
                 ),
             )
 
@@ -234,18 +287,11 @@ class T4P_OT_triangulate_selected(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        initial_mode = context.mode
-        initial_active = context.view_layer.objects.active
-
-        if initial_mode != "OBJECT":
-            try:
-                bpy.ops.object.mode_set(mode="OBJECT")
-            except RuntimeError:
-                pass
-
         if context.mode != "OBJECT":
-            self.report({"ERROR"}, "Unable to switch to Object mode for triangulation.")
+            self.report({"ERROR"}, "Switch to Object mode to triangulate meshes.")
             return {"CANCELLED"}
+
+        initial_active = context.view_layer.objects.active
 
         selected_objects = list(context.selected_objects)
         triangulated_objects = []
@@ -267,13 +313,6 @@ class T4P_OT_triangulate_selected(Operator):
         if initial_active and context.scene.objects.get(initial_active.name) is not None:
             context.view_layer.objects.active = initial_active
 
-        target_mode = _mode_from_context(initial_mode)
-        if target_mode != "OBJECT" and initial_active:
-            try:
-                bpy.ops.object.mode_set(mode=target_mode)
-            except RuntimeError:
-                pass
-
         if not selected_objects:
             self.report({"INFO"}, "No objects selected.")
         elif mesh_candidates == 0:
@@ -291,7 +330,11 @@ class T4P_OT_triangulate_selected(Operator):
         return {"FINISHED"}
 
 
-classes = (T4P_OT_smooth_intersections, T4P_OT_triangulate_selected)
+classes = (
+    T4P_OT_smooth_intersections,
+    T4P_OT_filter_intersections,
+    T4P_OT_triangulate_selected,
+)
 
 
 def register() -> None:
@@ -308,7 +351,9 @@ __all__ = (
     "register",
     "unregister",
     "SMOOTH_OPERATOR_IDNAME",
+    "FILTER_OPERATOR_IDNAME",
     "TRIANGULATE_OPERATOR_IDNAME",
     "T4P_OT_smooth_intersections",
+    "T4P_OT_filter_intersections",
     "T4P_OT_triangulate_selected",
 )
