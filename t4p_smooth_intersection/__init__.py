@@ -195,11 +195,11 @@ def _smooth_object_intersections_in_edit_mode(obj: bpy.types.Object) -> int:
 
 
 class T4P_OT_smooth_intersections(Operator):
-    """Smooth intersecting faces across all mesh objects."""
+    """Smooth intersecting faces across selected mesh objects."""
 
     bl_idname = SMOOTH_OPERATOR_IDNAME
     bl_label = "Smooth Intersections"
-    bl_description = "Smooth intersecting faces for every mesh object"
+    bl_description = "Smooth intersecting faces for selected mesh objects"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -214,7 +214,7 @@ class T4P_OT_smooth_intersections(Operator):
 
         smoothed_objects: List[str] = []
 
-        for obj in context.scene.objects:
+        for obj in initial_selection:
             if obj.type != "MESH" or obj.data is None:
                 continue
 
