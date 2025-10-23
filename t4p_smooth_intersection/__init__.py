@@ -27,6 +27,9 @@ FILTER_OPERATOR_IDNAME = "t4p_smooth_intersection.filter_intersections"
 FILTER_NON_MANIFOLD_OPERATOR_IDNAME = (
     "t4p_smooth_intersection.filter_non_manifold"
 )
+CLEAN_NON_MANIFOLD_OPERATOR_IDNAME = (
+    "t4p_smooth_intersection.clean_non_manifold"
+)
 TRIANGULATE_OPERATOR_IDNAME = "t4p_smooth_intersection.triangulate_selected"
 
 
@@ -160,6 +163,112 @@ def _mesh_has_intersections(
         new_bm.free()
 
     return False
+
+
+def _triangulate_edit_bmesh(bm: bmesh.types.BMesh) -> bool:
+    bm.faces.ensure_lookup_table()
+    faces = [face for face in bm.faces if face.is_valid]
+    if not faces:
+        return False
+
+    bmesh.ops.triangulate(bm, faces=faces)
+    return True
+
+
+def _get_mesh_vertex_islands(
+    bm: bmesh.types.BMesh,
+) -> list[list[bmesh.types.BMVert]]:
+    bm.verts.ensure_lookup_table()
+    visited: set[int] = set()
+    islands: list[list[bmesh.types.BMVert]] = []
+
+    for vert in bm.verts:
+        if not vert.is_valid:
+            continue
+        if vert.index in visited:
+            continue
+
+        stack = [vert]
+        island: list[bmesh.types.BMVert] = []
+        while stack:
+            current = stack.pop()
+            if not current.is_valid:
+                continue
+
+            index = current.index
+            if index in visited:
+                continue
+
+            visited.add(index)
+            island.append(current)
+
+            for edge in current.link_edges:
+                if not edge.is_valid:
+                    continue
+                for linked_vert in edge.verts:
+                    if linked_vert.is_valid and linked_vert.index not in visited:
+                        stack.append(linked_vert)
+
+        if island:
+            islands.append(island)
+
+    return islands
+
+
+def _delete_small_vertex_islands(
+    bm: bmesh.types.BMesh, min_vertices: int
+) -> bool:
+    islands = _get_mesh_vertex_islands(bm)
+    if not islands:
+        return False
+
+    max_size = max(len(island) for island in islands)
+    verts_to_delete: set[bmesh.types.BMVert] = set()
+    for island in islands:
+        if len(island) < min_vertices and len(island) < max_size:
+            verts_to_delete.update(island)
+
+    if not verts_to_delete:
+        return False
+
+    bmesh.ops.delete(bm, geom=list(verts_to_delete), context="VERTS")
+    return True
+
+
+def _fill_and_triangulate_holes(bm: bmesh.types.BMesh) -> bool:
+    bm.edges.ensure_lookup_table()
+    boundary_edges = [edge for edge in bm.edges if edge.is_valid and edge.is_boundary]
+    if not boundary_edges:
+        return False
+
+    result = bmesh.ops.holes_fill(bm, edges=boundary_edges, sides=0)
+    new_faces = [face for face in result.get("faces", []) if face.is_valid]
+    if not new_faces:
+        return False
+
+    bmesh.ops.triangulate(bm, faces=new_faces)
+    return True
+
+
+def _dissolve_degenerate_and_triangulate(
+    bm: bmesh.types.BMesh, threshold: float
+) -> bool:
+    bm.edges.ensure_lookup_table()
+    edges = [edge for edge in bm.edges if edge.is_valid]
+    if not edges:
+        return False
+
+    dissolve_result = bmesh.ops.dissolve_degenerate(
+        bm, edges=edges, dist=threshold
+    )
+    changed = bool(
+        dissolve_result.get("region_edges")
+        or dissolve_result.get("region_faces")
+        or dissolve_result.get("region_verts")
+    )
+
+    triangulated = _triangulate_edit_bmesh(bm)
+    return changed or triangulated
 
 
 def _calculate_faces_bounding_box(
@@ -720,6 +829,143 @@ def _triangulate_mesh(mesh: bpy.types.Mesh) -> bool:
     return True
 
 
+def _clean_object_non_manifold(obj: bpy.types.Object) -> bool:
+    mesh = obj.data
+    if mesh is None:
+        return False
+
+    try:
+        bpy.ops.object.mode_set(mode="EDIT")
+    except RuntimeError:
+        return False
+
+    changed = False
+
+    try:
+        try:
+            bpy.ops.mesh.select_mode(type="VERT")
+        except RuntimeError:
+            pass
+
+        try:
+            bpy.ops.mesh.select_all(action="SELECT")
+        except RuntimeError:
+            pass
+
+        bm = bmesh.from_edit_mesh(mesh)
+
+        if _triangulate_edit_bmesh(bm):
+            changed = True
+
+        if _delete_small_vertex_islands(bm, min_vertices=100):
+            changed = True
+
+        bm.normal_update()
+        bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+
+        try:
+            delete_loose_result = bpy.ops.mesh.delete_loose()
+        except RuntimeError:
+            delete_loose_result = set()
+        else:
+            if "FINISHED" in delete_loose_result:
+                changed = True
+
+        bm = bmesh.from_edit_mesh(mesh)
+
+        if _fill_and_triangulate_holes(bm):
+            changed = True
+
+        bm.normal_update()
+        bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+
+        bm = bmesh.from_edit_mesh(mesh)
+
+        if _dissolve_degenerate_and_triangulate(bm, threshold=0.01):
+            changed = True
+
+        bm.normal_update()
+        bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+
+    finally:
+        try:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        except RuntimeError:
+            pass
+
+    return changed
+
+
+class T4P_OT_clean_non_manifold(Operator):
+    """Clean up non-manifold geometry across selected mesh objects."""
+
+    bl_idname = CLEAN_NON_MANIFOLD_OPERATOR_IDNAME
+    bl_label = "Clean Non-manifold"
+    bl_description = "Remove small islands, loose elements, and holes on selected meshes"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        if context.mode != "OBJECT":
+            self.report({"ERROR"}, "Switch to Object mode to clean non-manifold meshes.")
+            return {"CANCELLED"}
+
+        selected_objects = list(context.selected_objects)
+        if not selected_objects:
+            self.report({"INFO"}, "No objects selected.")
+            return {"FINISHED"}
+
+        initial_active = context.view_layer.objects.active
+        scene = context.scene
+        cleaned_objects: list[bpy.types.Object] = []
+        mesh_candidates = 0
+
+        for obj in selected_objects:
+            if obj.type != "MESH" or obj.data is None:
+                continue
+
+            if scene is not None and scene.objects.get(obj.name) is None:
+                continue
+
+            mesh_candidates += 1
+
+            context.view_layer.objects.active = obj
+            obj.select_set(True)
+
+            try:
+                changed = _clean_object_non_manifold(obj)
+            except RuntimeError:
+                changed = False
+
+            if changed:
+                cleaned_objects.append(obj)
+
+        if initial_active and (
+            scene is None
+            or scene.objects.get(initial_active.name) is not None
+        ):
+            context.view_layer.objects.active = initial_active
+        elif initial_active is None:
+            context.view_layer.objects.active = None
+        elif cleaned_objects:
+            context.view_layer.objects.active = cleaned_objects[0]
+        else:
+            context.view_layer.objects.active = None
+
+        if mesh_candidates == 0:
+            self.report({"INFO"}, "No mesh objects selected.")
+        elif cleaned_objects:
+            self.report(
+                {"INFO"},
+                "Cleaned non-manifold geometry on: {}".format(
+                    ", ".join(obj.name for obj in cleaned_objects)
+                ),
+            )
+        else:
+            self.report({"INFO"}, "No changes made to selected meshes.")
+
+        return {"FINISHED"}
+
+
 class T4P_OT_triangulate_selected(Operator):
     """Triangulate all selected mesh objects."""
 
@@ -803,6 +1049,7 @@ class T4P_PT_main_panel(Panel):
             (SMOOTH_OPERATOR_IDNAME, "MOD_DASH", "Fix intersections"),
             (FILTER_OPERATOR_IDNAME, "FILTER", "Filter intersections"),
             (FILTER_NON_MANIFOLD_OPERATOR_IDNAME, "FILTER", "Filter non-manifold"),
+            (CLEAN_NON_MANIFOLD_OPERATOR_IDNAME, "BRUSH_DATA", "Clean non-manifold"),
             (TRIANGULATE_OPERATOR_IDNAME, "MOD_TRIANGULATE", "Triangulate all"),
         )
 
@@ -816,6 +1063,7 @@ classes = (
     T4P_OT_smooth_intersections,
     T4P_OT_filter_intersections,
     T4P_OT_filter_non_manifold,
+    T4P_OT_clean_non_manifold,
     T4P_OT_triangulate_selected,
     T4P_PT_main_panel,
 )
@@ -849,10 +1097,12 @@ __all__ = (
     "SMOOTH_OPERATOR_IDNAME",
     "FILTER_OPERATOR_IDNAME",
     "FILTER_NON_MANIFOLD_OPERATOR_IDNAME",
+    "CLEAN_NON_MANIFOLD_OPERATOR_IDNAME",
     "TRIANGULATE_OPERATOR_IDNAME",
     "T4P_OT_smooth_intersections",
     "T4P_OT_filter_intersections",
     "T4P_OT_filter_non_manifold",
+    "T4P_OT_clean_non_manifold",
     "T4P_OT_triangulate_selected",
     "T4P_PT_main_panel",
 )
