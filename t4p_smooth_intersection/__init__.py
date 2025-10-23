@@ -235,10 +235,67 @@ def _delete_small_vertex_islands(
     return True
 
 
-def delete_interior_faces() -> None:
-    bpy.ops.mesh.select_all(action="DESELECT")
-    bpy.ops.mesh.select_interior_faces()
-    bpy.ops.mesh.delete(type="FACE")
+def delete_interior_faces() -> bool:
+    """Delete interior faces in edit mode.
+
+    Returns ``True`` if any interior faces were removed.
+    """
+
+    edit_object = bpy.context.edit_object
+    mesh = None
+    if edit_object is not None and edit_object.type == "MESH":
+        mesh = edit_object.data
+
+    try:
+        bpy.ops.mesh.select_all(action="DESELECT")
+    except RuntimeError:
+        return False
+
+    try:
+        bpy.ops.mesh.select_interior_faces()
+    except RuntimeError:
+        try:
+            bpy.ops.mesh.select_all(action="SELECT")
+        except RuntimeError:
+            pass
+        return False
+
+    selected_faces: int | None = None
+    if mesh is not None:
+        bm = bmesh.from_edit_mesh(mesh)
+        bm.faces.ensure_lookup_table()
+        selected_faces = sum(
+            1 for face in bm.faces if face.is_valid and face.select
+        )
+
+        if selected_faces == 0:
+            try:
+                bpy.ops.mesh.select_all(action="SELECT")
+            except RuntimeError:
+                pass
+            return False
+
+    try:
+        delete_result = bpy.ops.mesh.delete(type="FACE")
+    except RuntimeError:
+        try:
+            bpy.ops.mesh.select_all(action="SELECT")
+        except RuntimeError:
+            pass
+        return False
+
+    try:
+        bpy.ops.mesh.select_all(action="SELECT")
+    except RuntimeError:
+        pass
+
+    if "FINISHED" not in delete_result:
+        return False
+
+    if selected_faces is not None:
+        return selected_faces > 0
+
+    return True
 
 
 def _fill_and_triangulate_holes(bm: bmesh.types.BMesh) -> bool:
@@ -876,6 +933,9 @@ def _clean_object_non_manifold(obj: bpy.types.Object) -> bool:
 
         bm.normal_update()
         bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+
+        if delete_interior_faces():
+            changed = True
 
         try:
             delete_loose_result = bpy.ops.mesh.delete_loose()
