@@ -6,6 +6,7 @@ from typing import List
 
 import bmesh
 import bpy
+from bpy.props import IntProperty
 from bpy.types import Operator, Panel
 from mathutils.bvhtree import BVHTree
 
@@ -129,13 +130,16 @@ def _mesh_has_intersections(
     return False
 
 
-def _smooth_object_intersections(obj: bpy.types.Object) -> int:
+def _smooth_object_intersections(
+    obj: bpy.types.Object, max_attempts: int
+) -> int:
     """Run the intersection smoothing workflow on a mesh object.
 
     Returns the number of iterations that performed smoothing.
     """
 
     mesh = obj.data
+    max_attempts = max(1, max_attempts)
     if mesh is None:
         return 0
 
@@ -158,7 +162,7 @@ def _smooth_object_intersections(obj: bpy.types.Object) -> int:
 
         bpy.ops.mesh.select_mode(type="FACE")
 
-        for iteration in range(1, 4):
+        for iteration in range(1, max_attempts + 1):
             face_count = _select_intersecting_faces(mesh, bm)
             if face_count == 0:
                 break
@@ -175,6 +179,13 @@ def _smooth_object_intersections(obj: bpy.types.Object) -> int:
                 return smoothed_attempts
 
             bpy.ops.mesh.select_mode(type="FACE")
+            remaining_faces = _select_intersecting_faces(mesh, bm)
+            if remaining_faces:
+                bpy.ops.mesh.subdivide(number_cuts=1)
+                bmesh.update_edit_mesh(mesh)
+                bm = bmesh.from_edit_mesh(mesh)
+
+            bpy.ops.mesh.select_mode(type="FACE")
     finally:
         bpy.ops.object.mode_set(mode="OBJECT")
 
@@ -184,12 +195,14 @@ def _smooth_object_intersections(obj: bpy.types.Object) -> int:
     return smoothed_attempts
 
 
-def _smooth_object_intersections_in_edit_mode(obj: bpy.types.Object) -> int:
+def _smooth_object_intersections_in_edit_mode(
+    obj: bpy.types.Object, max_attempts: int
+) -> int:
     """Run the smoothing workflow while temporarily entering edit mode."""
 
     bpy.ops.object.mode_set(mode="EDIT")
     try:
-        return _smooth_object_intersections(obj)
+        return _smooth_object_intersections(obj, max_attempts)
     finally:
         bpy.ops.object.mode_set(mode="OBJECT")
 
@@ -213,6 +226,14 @@ class T4P_OT_smooth_intersections(Operator):
         bpy.ops.object.select_all(action="DESELECT")
 
         smoothed_objects: List[str] = []
+        scene = context.scene
+        attempt_limit = 5
+        if scene is not None:
+            try:
+                attempt_limit = int(getattr(scene, "t4p_smooth_intersection_attempts", 5))
+            except (TypeError, ValueError):
+                attempt_limit = 5
+            attempt_limit = max(1, attempt_limit)
 
         for obj in initial_selection:
             if obj.type != "MESH" or obj.data is None:
@@ -225,7 +246,9 @@ class T4P_OT_smooth_intersections(Operator):
             context.view_layer.objects.active = obj
 
             try:
-                attempts = _smooth_object_intersections_in_edit_mode(obj)
+                attempts = _smooth_object_intersections_in_edit_mode(
+                    obj, attempt_limit
+                )
             except RuntimeError:
                 attempts = 0
             finally:
@@ -403,6 +426,17 @@ class T4P_PT_main_panel(Panel):
     def draw(self, context):
         layout = self.layout
 
+        props_col = layout.column()
+        scene = context.scene
+        if scene is not None and hasattr(scene, "t4p_smooth_intersection_attempts"):
+            props_col.prop(
+                scene,
+                "t4p_smooth_intersection_attempts",
+                text="Smooth Attempts",
+            )
+        else:
+            props_col.label(text="Smooth Attempts: 5")
+
         col = layout.column()
         col.enabled = context.mode == "OBJECT" and bool(context.selected_objects)
 
@@ -432,6 +466,15 @@ classes = (
 
 
 def register() -> None:
+    bpy.types.Scene.t4p_smooth_intersection_attempts = IntProperty(
+        name="Smooth Attempts",
+        description=(
+            "Maximum number of smoothing iterations to run when removing"
+            " mesh self-intersections"
+        ),
+        default=5,
+        min=1,
+    )
     for cls in classes:
         bpy.utils.register_class(cls)
 
@@ -439,6 +482,8 @@ def register() -> None:
 def unregister() -> None:
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+    if hasattr(bpy.types.Scene, "t4p_smooth_intersection_attempts"):
+        del bpy.types.Scene.t4p_smooth_intersection_attempts
 
 
 __all__ = (
