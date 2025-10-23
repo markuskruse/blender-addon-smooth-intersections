@@ -790,34 +790,26 @@ class T4P_PT_main_panel(Panel):
             props_col.prop(
                 scene,
                 "t4p_smooth_intersection_attempts",
-                text="Smooth Attempts",
+                text="Smoothing attempts",
             )
         else:
-            props_col.label(text="Smooth Attempts: 5")
+            props_col.label(text="Smoothing attempts: 5")
 
-        col = layout.column()
-        col.enabled = context.mode == "OBJECT" and bool(context.selected_objects)
+        is_object_mode = context.mode == "OBJECT"
+        has_selection = bool(getattr(context, "selected_objects", []))
 
-        col.operator(
-            SMOOTH_OPERATOR_IDNAME,
-            icon="MOD_BOOLEAN",
-            text="Smooth int",
+        controls_col = layout.column(align=True)
+        button_configs = (
+            (SMOOTH_OPERATOR_IDNAME, "MOD_BOOLEAN", "Fix intersections"),
+            (FILTER_OPERATOR_IDNAME, "FILTER", "Filter intersections"),
+            (FILTER_NON_MANIFOLD_OPERATOR_IDNAME, "SELECT_NON_MANIFOLD", "Filter non-manifold"),
+            (TRIANGULATE_OPERATOR_IDNAME, "MOD_TRIANGULATE", "Triangulate all"),
         )
-        col.operator(
-            FILTER_OPERATOR_IDNAME,
-            icon="FILTER",
-            text="Filter intersections",
-        )
-        col.operator(
-            FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
-            icon="SELECT_NON_MANIFOLD",
-            text="Filter non manifold",
-        )
-        col.operator(
-            TRIANGULATE_OPERATOR_IDNAME,
-            icon="MOD_TRIANGULATE",
-            text="Triangulate all",
-        )
+
+        for operator_id, icon, label in button_configs:
+            row = controls_col.row(align=True)
+            row.enabled = is_object_mode and has_selection
+            row.operator(operator_id, icon=icon, text=label)
 
 
 classes = (
