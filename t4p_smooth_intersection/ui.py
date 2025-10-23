@@ -5,7 +5,7 @@ from __future__ import annotations
 import bpy
 from bpy.types import Panel
 
-from .ops import OPERATOR_IDNAME
+from .ops import SMOOTH_OPERATOR_IDNAME, TRIANGULATE_OPERATOR_IDNAME
 
 
 class T4P_PT_main_panel(Panel):
@@ -20,9 +20,14 @@ class T4P_PT_main_panel(Panel):
     def draw(self, context):
         layout = self.layout
         layout.operator(
-            OPERATOR_IDNAME,
+            SMOOTH_OPERATOR_IDNAME,
             icon="MOD_BOOLEAN",
             text="Smooth int",
+        )
+        layout.operator(
+            TRIANGULATE_OPERATOR_IDNAME,
+            icon="MOD_TRIANGULATE",
+            text="Triangulate all",
         )
 
 
