@@ -633,7 +633,7 @@ class T4P_OT_filter_non_manifold(Operator):
 
         initial_active = context.view_layer.objects.active
         scene = context.scene
-        deselected_objects: list[bpy.types.Object] = []
+        non_manifold_list: list[bpy.types.Object] = []
         mesh_candidates = 0
 
         for obj in selected_objects:
@@ -662,9 +662,12 @@ class T4P_OT_filter_non_manifold(Operator):
                 except RuntimeError:
                     pass
 
+            obj.select_set(False)
             if has_non_manifold:
-                obj.select_set(False)
-                deselected_objects.append(obj)
+                non_manifold_list.append(obj)
+
+        for obj in non_manifold_list:
+            obj.select_set(True)
 
         remaining_selected = [obj for obj in context.selected_objects if obj.select_get()]
 
