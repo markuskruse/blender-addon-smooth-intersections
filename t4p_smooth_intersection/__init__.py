@@ -112,35 +112,54 @@ def _mesh_has_intersections(mesh: bpy.types.Mesh) -> bool:
     return False
 
 
-def _process_object(obj: bpy.types.Object) -> int:
-    """Run the smoothing workflow on a single mesh object.
+def _smooth_object_intersections(obj: bpy.types.Object) -> int:
+    """Run the intersection smoothing workflow on a mesh object.
 
-    Returns the number of attempts that performed smoothing.
+    Returns the number of iterations that performed smoothing.
     """
 
     mesh = obj.data
+    if mesh is None:
+        return 0
+
     smoothed_attempts = 0
 
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.select_mode(type="FACE")
+    if not _mesh_has_intersections(mesh):
+        return 0
 
-    bm = bmesh.from_edit_mesh(mesh)
-    if bm.faces:
-        bmesh.ops.triangulate(bm, faces=list(bm.faces))
-        bmesh.update_edit_mesh(mesh)
+    _triangulate_mesh(mesh)
+
+    if not _mesh_has_intersections(mesh):
+        return 0
 
     try:
-        for _ in range(3):
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_mode(type="FACE")
+
+        for iteration in range(1, 4):
             face_count = _select_intersecting_faces(mesh)
             if face_count == 0:
                 break
 
             _grow_selection(2)
             _shrink_selection(1)
-            bpy.ops.mesh.vertices_smooth(repeat=1)
+            bpy.ops.mesh.vertices_smooth(repeat=iteration)
             smoothed_attempts += 1
+
+            bmesh.update_edit_mesh(mesh)
+
+            bpy.ops.object.mode_set(mode="OBJECT")
+            if not _mesh_has_intersections(mesh):
+                return smoothed_attempts
+
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_mode(type="FACE")
     finally:
         bpy.ops.object.mode_set(mode="OBJECT")
+
+    if not _mesh_has_intersections(mesh):
+        return smoothed_attempts
+
     return smoothed_attempts
 
 
@@ -175,7 +194,7 @@ class T4P_OT_smooth_intersections(Operator):
             context.view_layer.objects.active = obj
 
             try:
-                attempts = _process_object(obj)
+                attempts = _smooth_object_intersections(obj)
             except RuntimeError:
                 attempts = 0
             finally:
