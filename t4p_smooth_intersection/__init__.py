@@ -800,9 +800,9 @@ class T4P_PT_main_panel(Panel):
 
         controls_col = layout.column(align=True)
         button_configs = (
-            (SMOOTH_OPERATOR_IDNAME, "MOD_BOOLEAN", "Fix intersections"),
+            (SMOOTH_OPERATOR_IDNAME, "MOD_DASH", "Fix intersections"),
             (FILTER_OPERATOR_IDNAME, "FILTER", "Filter intersections"),
-            (FILTER_NON_MANIFOLD_OPERATOR_IDNAME, "SELECT_NON_MANIFOLD", "Filter non-manifold"),
+            (FILTER_NON_MANIFOLD_OPERATOR_IDNAME, "FILTER", "Filter non-manifold"),
             (TRIANGULATE_OPERATOR_IDNAME, "MOD_TRIANGULATE", "Triangulate all"),
         )
 
