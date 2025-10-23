@@ -163,6 +163,16 @@ def _smooth_object_intersections(obj: bpy.types.Object) -> int:
     return smoothed_attempts
 
 
+def _smooth_object_intersections_in_edit_mode(obj: bpy.types.Object) -> int:
+    """Run the smoothing workflow while temporarily entering edit mode."""
+
+    bpy.ops.object.mode_set(mode="EDIT")
+    try:
+        return _smooth_object_intersections(obj)
+    finally:
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+
 class T4P_OT_smooth_intersections(Operator):
     """Smooth intersecting faces across all mesh objects."""
 
@@ -194,7 +204,7 @@ class T4P_OT_smooth_intersections(Operator):
             context.view_layer.objects.active = obj
 
             try:
-                attempts = _smooth_object_intersections(obj)
+                attempts = _smooth_object_intersections_in_edit_mode(obj)
             except RuntimeError:
                 attempts = 0
             finally:
