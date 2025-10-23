@@ -26,23 +26,16 @@ FILTER_OPERATOR_IDNAME = "t4p_smooth_intersection.filter_intersections"
 TRIANGULATE_OPERATOR_IDNAME = "t4p_smooth_intersection.triangulate_selected"
 
 
-def _select_intersecting_faces(
-    mesh: bpy.types.Mesh, bm: bmesh.types.BMesh
-) -> int:
-    """Select intersecting faces of ``bm`` in edit mode.
-
-    Returns the number of faces that were selected.
-    """
-
+def _get_intersecting_face_indices(bm: bmesh.types.BMesh) -> set[int]:
     if not bm.faces:
-        return 0
+        return set()
 
     bm.faces.ensure_lookup_table()
     tree = BVHTree.FromBMesh(bm)
     if tree is None:
-        return 0
+        return set()
 
-    intersection_indices = set()
+    intersection_indices: set[int] = set()
     for index_a, index_b in tree.overlap(tree):
         if index_a == index_b or index_b < index_a:
             continue
@@ -57,10 +50,41 @@ def _select_intersecting_faces(
         intersection_indices.add(index_a)
         intersection_indices.add(index_b)
 
+    return intersection_indices
+
+
+def _select_intersecting_faces(
+    mesh: bpy.types.Mesh, bm: bmesh.types.BMesh
+) -> int:
+    """Select intersecting faces of ``bm`` in edit mode.
+
+    Returns the number of faces that were selected.
+    """
+
+    intersection_indices = _get_intersecting_face_indices(bm)
+
     for face in bm.faces:
         face.select_set(face.index in intersection_indices)
 
     bmesh.update_edit_mesh(mesh)
+    return len(intersection_indices)
+
+
+def _select_intersecting_faces_on_mesh(mesh: bpy.types.Mesh) -> int:
+    """Select intersecting faces of ``mesh`` while in object mode."""
+
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(mesh)
+        intersection_indices = _get_intersecting_face_indices(bm)
+    finally:
+        bm.free()
+
+    intersection_lookup = intersection_indices
+    for polygon in mesh.polygons:
+        polygon.select = polygon.index in intersection_lookup
+
+    mesh.update()
     return len(intersection_indices)
 
 
@@ -144,6 +168,8 @@ def _smooth_object_intersections(
         return 0
 
     smoothed_attempts = 0
+    subdivisions_done = 0
+    max_subdivisions = 2
 
     try:
         bpy.ops.object.mode_set(mode="EDIT")
@@ -167,7 +193,8 @@ def _smooth_object_intersections(
             if face_count == 0:
                 break
 
-            _grow_selection(2)
+            growth_steps = 2 + (subdivisions_done * 2)
+            _grow_selection(growth_steps)
             _shrink_selection(1)
             bpy.ops.mesh.vertices_smooth(repeat=iteration)
             smoothed_attempts += 1
@@ -180,10 +207,12 @@ def _smooth_object_intersections(
 
             bpy.ops.mesh.select_mode(type="FACE")
             remaining_faces = _select_intersecting_faces(mesh, bm)
-            if remaining_faces:
-                bpy.ops.mesh.subdivide(number_cuts=1)
-                bmesh.update_edit_mesh(mesh)
-                bm = bmesh.from_edit_mesh(mesh)
+            if remaining_faces and subdivisions_done < max_subdivisions:
+                result = bpy.ops.mesh.subdivide(number_cuts=1)
+                if "FINISHED" in result:
+                    subdivisions_done += 1
+                    bmesh.update_edit_mesh(mesh)
+                    bm = bmesh.from_edit_mesh(mesh)
 
             bpy.ops.mesh.select_mode(type="FACE")
     finally:
@@ -307,9 +336,10 @@ class T4P_OT_filter_intersections(Operator):
             has_intersections = False
             if obj.type == "MESH" and obj.data is not None:
                 try:
-                    has_intersections = _mesh_has_intersections(obj.data)
+                    face_count = _select_intersecting_faces_on_mesh(obj.data)
                 except RuntimeError:
-                    has_intersections = False
+                    face_count = 0
+                has_intersections = face_count > 0
 
             obj.select_set(has_intersections)
 
