@@ -206,15 +206,6 @@ def _smooth_object_intersections(
                 return smoothed_attempts
 
             bpy.ops.mesh.select_mode(type="FACE")
-            remaining_faces = _select_intersecting_faces(mesh, bm)
-            if remaining_faces and subdivisions_done < max_subdivisions:
-                result = bpy.ops.mesh.subdivide(number_cuts=1)
-                if "FINISHED" in result:
-                    subdivisions_done += 1
-                    bmesh.update_edit_mesh(mesh)
-                    bm = bmesh.from_edit_mesh(mesh)
-
-            bpy.ops.mesh.select_mode(type="FACE")
     finally:
         bpy.ops.object.mode_set(mode="OBJECT")
 
