@@ -799,13 +799,13 @@ class T4P_OT_filter_non_manifold(Operator):
 
         if mesh_candidates == 0:
             self.report({"INFO"}, "No mesh objects selected.")
-        elif not deselected_objects:
+        elif not non_manifold_list:
             self.report({"INFO"}, "All checked mesh objects are manifold.")
         else:
             self.report(
                 {"INFO"},
                 "Deselected non-manifold meshes: {}".format(
-                    ", ".join(obj.name for obj in deselected_objects)
+                    ", ".join(obj.name for obj in non_manifold_list)
                 ),
             )
 
