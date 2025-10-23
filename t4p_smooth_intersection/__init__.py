@@ -235,6 +235,12 @@ def _delete_small_vertex_islands(
     return True
 
 
+def delete_interior_faces() -> None:
+    bpy.ops.mesh.select_all(action="DESELECT")
+    bpy.ops.mesh.select_interior_faces()
+    bpy.ops.mesh.delete(type="FACE")
+
+
 def _fill_and_triangulate_holes(bm: bmesh.types.BMesh) -> bool:
     bm.edges.ensure_lookup_table()
     boundary_edges = [edge for edge in bm.edges if edge.is_valid and edge.is_boundary]
