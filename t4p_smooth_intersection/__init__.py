@@ -8,6 +8,7 @@ import bmesh
 import bpy
 from bpy.props import IntProperty
 from bpy.types import Operator, Panel
+from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
 bl_info = {
@@ -72,6 +73,10 @@ def _select_intersecting_faces(
 
 def _select_intersecting_faces_on_mesh(mesh: bpy.types.Mesh) -> int:
     """Select intersecting faces of ``mesh`` while in object mode."""
+
+    polygons = mesh.polygons
+    if polygons:
+        polygons.foreach_set("select", [False] * len(polygons))
 
     bm = bmesh.new()
     try:
@@ -154,6 +159,245 @@ def _mesh_has_intersections(
     return False
 
 
+def _calculate_faces_bounding_box(
+    faces: list[bmesh.types.BMFace],
+) -> tuple[Vector, Vector]:
+    coords = [
+        vert.co
+        for face in faces
+        if face.is_valid
+        for vert in face.verts
+    ]
+    if not coords:
+        origin = Vector((0.0, 0.0, 0.0))
+        return origin.copy(), origin.copy()
+
+    xs = [co.x for co in coords]
+    ys = [co.y for co in coords]
+    zs = [co.z for co in coords]
+    return Vector((min(xs), min(ys), min(zs))), Vector((max(xs), max(ys), max(zs)))
+
+
+def _bounding_boxes_intersect(
+    box_a: tuple[Vector, Vector], box_b: tuple[Vector, Vector]
+) -> bool:
+    min_a, max_a = box_a
+    min_b, max_b = box_b
+    return (
+        max_a.x >= min_b.x
+        and max_b.x >= min_a.x
+        and max_a.y >= min_b.y
+        and max_b.y >= min_a.y
+        and max_a.z >= min_b.z
+        and max_b.z >= min_a.z
+    )
+
+
+def _group_intersecting_bounding_boxes(
+    boxes: list[tuple[Vector, Vector]]
+) -> list[list[int]]:
+    adjacency: list[set[int]] = [set() for _ in boxes]
+    for idx_a in range(len(boxes)):
+        for idx_b in range(idx_a + 1, len(boxes)):
+            if _bounding_boxes_intersect(boxes[idx_a], boxes[idx_b]):
+                adjacency[idx_a].add(idx_b)
+                adjacency[idx_b].add(idx_a)
+
+    visited: set[int] = set()
+    groups: list[list[int]] = []
+    for start in range(len(boxes)):
+        if start in visited:
+            continue
+
+        stack = [start]
+        group: list[int] = []
+        while stack:
+            current = stack.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            group.append(current)
+            stack.extend(adjacency[current])
+
+        groups.append(group)
+
+    return groups
+
+
+def _get_selected_visible_face_islands(
+    bm: bmesh.types.BMesh,
+) -> list[list[bmesh.types.BMFace]]:
+    bm.faces.ensure_lookup_table()
+    visited: set[int] = set()
+    islands: list[list[bmesh.types.BMFace]] = []
+
+    for face in bm.faces:
+        if not face.is_valid or not face.select or face.hide:
+            continue
+        if face.index in visited:
+            continue
+
+        stack = [face]
+        island: list[bmesh.types.BMFace] = []
+        while stack:
+            current = stack.pop()
+            if current.index in visited or not current.is_valid:
+                continue
+
+            visited.add(current.index)
+            island.append(current)
+
+            for edge in current.edges:
+                for linked_face in edge.link_faces:
+                    if (
+                        linked_face.is_valid
+                        and linked_face.select
+                        and not linked_face.hide
+                        and linked_face.index not in visited
+                    ):
+                        stack.append(linked_face)
+
+        if island:
+            islands.append(island)
+
+    return islands
+
+
+def _try_shrink_fatten(
+    mesh: bpy.types.Mesh,
+    bm: bmesh.types.BMesh,
+    faces: list[bmesh.types.BMFace],
+) -> bool:
+    if not faces:
+        return False
+
+    bm.faces.ensure_lookup_table()
+    bm.verts.ensure_lookup_table()
+
+    group_face_indices = {face.index for face in faces if face.is_valid}
+    if not group_face_indices:
+        return False
+
+    min_corner, max_corner = _calculate_faces_bounding_box(faces)
+    extents = max_corner - min_corner
+    max_length = max(extents.x, extents.y, extents.z)
+    if max_length <= 0.0:
+        return False
+
+    distance = max_length * 0.1
+    if abs(distance) <= 1e-6:
+        return False
+
+    relevant_vertices = {
+        vert
+        for face in faces
+        if face.is_valid
+        for vert in face.verts
+        if vert.is_valid
+    }
+    if not relevant_vertices:
+        return False
+
+    def _attempt(distance_value: float) -> bool:
+        saved_coords = {vert: vert.co.copy() for vert in relevant_vertices}
+        try:
+            bpy.ops.transform.shrink_fatten(value=distance_value, use_even_offset=True)
+        except RuntimeError:
+            for vert, coord in saved_coords.items():
+                vert.co = coord
+            bm.normal_update()
+            bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+            return False
+
+        bm.normal_update()
+        bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+
+        remaining = _get_intersecting_face_indices(bm)
+        if not (remaining & group_face_indices):
+            return True
+
+        for vert, coord in saved_coords.items():
+            vert.co = coord
+        bm.normal_update()
+        bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+        return False
+
+    if _attempt(distance):
+        return True
+
+    return _attempt(-distance)
+
+
+def _handle_remaining_intersections(
+    mesh: bpy.types.Mesh, bm: bmesh.types.BMesh
+) -> bool:
+    bpy.ops.mesh.select_mode(type="FACE")
+    try:
+        bpy.ops.mesh.reveal()
+    except RuntimeError:
+        pass
+
+    bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+    bm = bmesh.from_edit_mesh(mesh)
+
+    face_count = _select_intersecting_faces(mesh, bm)
+    if face_count == 0:
+        return False
+
+    bm = bmesh.from_edit_mesh(mesh)
+    _grow_selection(1)
+    bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+
+    try:
+        bpy.ops.mesh.hide(unselected=True)
+    except RuntimeError:
+        pass
+
+    bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+    bm = bmesh.from_edit_mesh(mesh)
+    islands = _get_selected_visible_face_islands(bm)
+    if not islands:
+        try:
+            bpy.ops.mesh.reveal()
+        except RuntimeError:
+            pass
+        bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+        return False
+
+    bounding_boxes = [_calculate_faces_bounding_box(island) for island in islands]
+    grouped_indices = _group_intersecting_bounding_boxes(bounding_boxes)
+
+    solved_any = False
+    for group in grouped_indices:
+        group_faces = [face for idx in group for face in islands[idx]]
+        bm.faces.ensure_lookup_table()
+        for face in bm.faces:
+            face.select_set(False)
+        for face in group_faces:
+            if face.is_valid:
+                face.select_set(True)
+
+        bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+
+        if _try_shrink_fatten(mesh, bm, group_faces):
+            solved_any = True
+
+        bm = bmesh.from_edit_mesh(mesh)
+
+    try:
+        bpy.ops.mesh.reveal()
+    except RuntimeError:
+        pass
+
+    bm = bmesh.from_edit_mesh(mesh)
+    bm.faces.ensure_lookup_table()
+    for face in bm.faces:
+        face.select_set(False)
+    bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+
+    return solved_any
+
+
 def _smooth_object_intersections(
     obj: bpy.types.Object, max_attempts: int
 ) -> int:
@@ -206,6 +450,14 @@ def _smooth_object_intersections(
                 return smoothed_attempts
 
             bpy.ops.mesh.select_mode(type="FACE")
+
+        if _mesh_has_intersections(mesh, bm):
+            if _handle_remaining_intersections(mesh, bm):
+                bm = bmesh.from_edit_mesh(mesh)
+                if not _mesh_has_intersections(mesh, bm):
+                    return smoothed_attempts
+            else:
+                bm = bmesh.from_edit_mesh(mesh)
     finally:
         bpy.ops.object.mode_set(mode="OBJECT")
 
