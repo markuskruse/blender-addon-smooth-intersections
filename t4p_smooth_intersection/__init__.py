@@ -14,7 +14,7 @@ bl_info = {
     "version": (0, 0, 1),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Item",
-    "description": "Skeleton add-on with a placeholder button in the Item tab.",
+    "description": "Smooth intersecting faces on mesh objects from the Item tab.",
     "warning": "",
     "category": "3D View",
 }
