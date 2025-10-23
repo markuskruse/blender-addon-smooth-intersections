@@ -22,7 +22,7 @@ class T4P_PT_main_panel(Panel):
         layout.operator(
             OPERATOR_IDNAME,
             icon="MOD_BOOLEAN",
-            text="Run Placeholder",
+            text="Smooth int",
         )
 
 
