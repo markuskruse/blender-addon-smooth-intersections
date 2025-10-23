@@ -193,10 +193,10 @@ def _smooth_object_intersections(
             if face_count == 0:
                 break
 
-            growth_steps = 2 + (subdivisions_done * 2)
+            growth_steps = 2 + subdivisions_done
             _grow_selection(growth_steps)
             _shrink_selection(1)
-            bpy.ops.mesh.vertices_smooth(repeat=iteration)
+            bpy.ops.mesh.vertices_smooth(factor=0.5,repeat=iteration)
             smoothed_attempts += 1
 
             bmesh.update_edit_mesh(mesh)
