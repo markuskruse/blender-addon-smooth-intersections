@@ -25,13 +25,14 @@ FILTER_OPERATOR_IDNAME = "t4p_smooth_intersection.filter_intersections"
 TRIANGULATE_OPERATOR_IDNAME = "t4p_smooth_intersection.triangulate_selected"
 
 
-def _select_intersecting_faces(mesh: bpy.types.Mesh) -> int:
-    """Select intersecting faces of the mesh in edit mode.
+def _select_intersecting_faces(
+    mesh: bpy.types.Mesh, bm: bmesh.types.BMesh
+) -> int:
+    """Select intersecting faces of ``bm`` in edit mode.
 
     Returns the number of faces that were selected.
     """
 
-    bm = bmesh.from_edit_mesh(mesh)
     if not bm.faces:
         return 0
 
@@ -72,23 +73,25 @@ def _shrink_selection(times: int) -> None:
         bpy.ops.mesh.select_less()
 
 
-def _mesh_has_intersections(mesh: bpy.types.Mesh) -> bool:
+def _mesh_has_intersections(
+    mesh: bpy.types.Mesh, bm: bmesh.types.BMesh | None = None
+) -> bool:
     """Return ``True`` when the provided mesh contains self-intersections."""
 
-    bm = bmesh.new()
-    try:
-        bm.from_mesh(mesh)
-        if not bm.faces:
+    def _bmesh_contains_self_intersections(
+        eval_bm: bmesh.types.BMesh,
+    ) -> bool:
+        if not eval_bm.faces:
             return False
 
-        faces = list(bm.faces)
+        faces = list(eval_bm.faces)
         if not faces:
             return False
 
-        bmesh.ops.triangulate(bm, faces=faces)
-        bm.faces.ensure_lookup_table()
+        bmesh.ops.triangulate(eval_bm, faces=faces)
+        eval_bm.faces.ensure_lookup_table()
 
-        tree = BVHTree.FromBMesh(bm)
+        tree = BVHTree.FromBMesh(eval_bm)
         if tree is None:
             return False
 
@@ -96,8 +99,8 @@ def _mesh_has_intersections(mesh: bpy.types.Mesh) -> bool:
             if index_a == index_b or index_b < index_a:
                 continue
 
-            face_a = bm.faces[index_a]
-            face_b = bm.faces[index_b]
+            face_a = eval_bm.faces[index_a]
+            face_b = eval_bm.faces[index_b]
 
             verts_a = {vert.index for vert in face_a.verts}
             verts_b = {vert.index for vert in face_b.verts}
@@ -106,8 +109,22 @@ def _mesh_has_intersections(mesh: bpy.types.Mesh) -> bool:
                 continue
 
             return True
+
+        return False
+
+    if bm is not None:
+        bm_copy = bm.copy()
+        try:
+            return _bmesh_contains_self_intersections(bm_copy)
+        finally:
+            bm_copy.free()
+
+    new_bm = bmesh.new()
+    try:
+        new_bm.from_mesh(mesh)
+        return _bmesh_contains_self_intersections(new_bm)
     finally:
-        bm.free()
+        new_bm.free()
 
     return False
 
@@ -124,20 +141,25 @@ def _smooth_object_intersections(obj: bpy.types.Object) -> int:
 
     smoothed_attempts = 0
 
-    if not _mesh_has_intersections(mesh):
-        return 0
-
-    _triangulate_mesh(mesh)
-
-    if not _mesh_has_intersections(mesh):
-        return 0
-
     try:
         bpy.ops.object.mode_set(mode="EDIT")
+        bm = bmesh.from_edit_mesh(mesh)
+
+        if not _mesh_has_intersections(mesh, bm):
+            return 0
+
+        bpy.ops.object.mode_set(mode="OBJECT")
+        _triangulate_mesh(mesh)
+        bpy.ops.object.mode_set(mode="EDIT")
+        bm = bmesh.from_edit_mesh(mesh)
+
+        if not _mesh_has_intersections(mesh, bm):
+            return 0
+
         bpy.ops.mesh.select_mode(type="FACE")
 
         for iteration in range(1, 4):
-            face_count = _select_intersecting_faces(mesh)
+            face_count = _select_intersecting_faces(mesh, bm)
             if face_count == 0:
                 break
 
@@ -147,12 +169,11 @@ def _smooth_object_intersections(obj: bpy.types.Object) -> int:
             smoothed_attempts += 1
 
             bmesh.update_edit_mesh(mesh)
+            bm = bmesh.from_edit_mesh(mesh)
 
-            bpy.ops.object.mode_set(mode="OBJECT")
-            if not _mesh_has_intersections(mesh):
+            if not _mesh_has_intersections(mesh, bm):
                 return smoothed_attempts
 
-            bpy.ops.object.mode_set(mode="EDIT")
             bpy.ops.mesh.select_mode(type="FACE")
     finally:
         bpy.ops.object.mode_set(mode="OBJECT")
