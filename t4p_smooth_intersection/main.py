@@ -24,17 +24,27 @@ TRIANGULATE_OPERATOR_IDNAME = "t4p_smooth_intersection.triangulate_selected"
 
 
 _CHIME_FILENAME = "chime.wav"
-_CHIME_FILEPATH: str | None = None
+_WARNING_FILENAME = "warning.wav"
+_SOUND_FILEPATH_CACHE: dict[str, str] = {}
+
+
+def _resolve_sound_filepath(filename: str, cache_key: str) -> str | None:
+    cached = _SOUND_FILEPATH_CACHE.get(cache_key)
+    if cached is not None:
+        return cached or None
+
+    candidate = Path(__file__).resolve().parent / filename
+    resolved = str(candidate) if candidate.exists() else ""
+    _SOUND_FILEPATH_CACHE[cache_key] = resolved
+    return resolved or None
 
 
 def _get_chime_filepath() -> str | None:
-    global _CHIME_FILEPATH
+    return _resolve_sound_filepath(_CHIME_FILENAME, "chime")
 
-    if _CHIME_FILEPATH is None:
-        candidate = Path(__file__).resolve().parent / _CHIME_FILENAME
-        _CHIME_FILEPATH = str(candidate) if candidate.exists() else ""
 
-    return _CHIME_FILEPATH or None
+def _get_warning_filepath() -> str | None:
+    return _resolve_sound_filepath(_WARNING_FILENAME, "warning")
 
 
 def _get_sound_operator():
@@ -88,7 +98,7 @@ def _play_sound(sound_id: str, context: bpy.types.Context | None = None) -> None
     sys.stdout.flush()
 
 
-def _ensure_chime_sound_id(filepath: str) -> str | None:
+def _ensure_sound_id(filepath: str) -> str | None:
     try:
         sound = bpy.data.sounds.load(filepath, check_existing=True)
     except RuntimeError:
@@ -105,19 +115,22 @@ def _ensure_chime_sound_id(filepath: str) -> str | None:
     return None
 
 
-def _play_chime_sound(context: bpy.types.Context | None = None) -> bool:
-    filepath = _get_chime_filepath()
+def _play_file_sound(filepath: str | None, context: bpy.types.Context | None = None) -> bool:
     if not filepath:
         return False
 
     if _try_play_sound(context, filepath=filepath):
         return True
 
-    sound_id = _ensure_chime_sound_id(filepath)
+    sound_id = _ensure_sound_id(filepath)
     if sound_id and _try_play_sound(context, sound_id=sound_id):
         return True
 
     return False
+
+
+def _play_chime_sound(context: bpy.types.Context | None = None) -> bool:
+    return _play_file_sound(_get_chime_filepath(), context)
 
 
 def _play_completion_sound(context: bpy.types.Context | None = None) -> None:
@@ -132,6 +145,9 @@ def _play_happy_sound(context: bpy.types.Context | None = None) -> None:
 
 
 def _play_warning_sound(context: bpy.types.Context | None = None) -> None:
+    if _play_file_sound(_get_warning_filepath(), context):
+        return
+
     _play_sound("WARNING", context)
 
 
