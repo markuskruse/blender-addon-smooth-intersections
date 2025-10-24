@@ -1,0 +1,15 @@
+schema_version = "1.0.0"
+
+id = "t4p_smooth_intersection"
+version = "0.0.1"
+name = "T4P Smooth Intersection"
+tagline = "Smooth intersecting faces on mesh objects from the 3D Print tab."
+type = "add-on"
+
+[maintainer]
+name = "T4P"
+
+blender_version_min = "4.5.0"
+
+license = ["GPL-3.0-or-later"]
+
