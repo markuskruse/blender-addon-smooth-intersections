@@ -21,6 +21,17 @@ from .operations import (
     T4P_OT_triangulate_selected,
 )
 
+bl_info = {
+    "name": "T4P Smooth Intersection",
+    "author": "T4P",
+    "version": (0, 0, 1),
+    "blender": (4, 5, 0),
+    "location": "View3D > Sidebar > 3D Print",
+    "description": "Smooth intersecting faces on mesh objects from the 3D Print tab.",
+    "warning": "",
+    "category": "3D View",
+}
+
 __all__ = (
     "register",
     "unregister",
