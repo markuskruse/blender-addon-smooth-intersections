@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import time
 from functools import wraps
+from pathlib import Path
 
 import bmesh
 import bpy
@@ -22,43 +23,107 @@ CLEAN_NON_MANIFOLD_OPERATOR_IDNAME = (
 TRIANGULATE_OPERATOR_IDNAME = "t4p_smooth_intersection.triangulate_selected"
 
 
-def _play_sound(sound_id: str, context: bpy.types.Context | None = None) -> None:
-    """Play a short notification sound, falling back to a terminal bell."""
+_CHIME_FILENAME = "chime.wav"
+_CHIME_FILEPATH: str | None = None
 
-    sound_operator = getattr(getattr(bpy.ops, "wm", None), "sound_play", None)
-    if sound_operator is not None:
-        override: dict[str, object] = {}
-        if context is not None:
-            window = getattr(context, "window", None)
-            area = getattr(context, "area", None)
-            region = getattr(context, "region", None)
-            if window is not None and area is not None and region is not None:
-                override = {"window": window, "area": area, "region": region}
 
+def _get_chime_filepath() -> str | None:
+    global _CHIME_FILEPATH
+
+    if _CHIME_FILEPATH is None:
+        candidate = Path(__file__).resolve().parent / _CHIME_FILENAME
+        _CHIME_FILEPATH = str(candidate) if candidate.exists() else ""
+
+    return _CHIME_FILEPATH or None
+
+
+def _get_sound_operator():
+    return getattr(getattr(bpy.ops, "wm", None), "sound_play", None)
+
+
+def _iter_sound_operator_overrides(context: bpy.types.Context | None):
+    override: dict[str, object] = {}
+    if context is not None:
+        window = getattr(context, "window", None)
+        area = getattr(context, "area", None)
+        region = getattr(context, "region", None)
+        if window is not None and area is not None and region is not None:
+            override = {"window": window, "area": area, "region": region}
+
+    if override:
+        yield override
+    yield {}
+
+
+def _try_play_sound(context: bpy.types.Context | None, **kwargs) -> bool:
+    sound_operator = _get_sound_operator()
+    if sound_operator is None:
+        return False
+
+    for override in _iter_sound_operator_overrides(context):
         try:
-            kwargs = {"sound_id": sound_id}
             if override:
                 sound_operator(override, **kwargs)
             else:
                 sound_operator(**kwargs)
-            return
+            return True
         except TypeError:
-            try:
-                if override:
-                    sound_operator(override)
-                else:
-                    sound_operator()
-                return
-            except Exception:
-                pass
+            continue
         except Exception:
-            pass
+            continue
+
+    return False
+
+
+def _play_sound(sound_id: str, context: bpy.types.Context | None = None) -> None:
+    """Play a short notification sound, falling back to a terminal bell."""
+
+    if _try_play_sound(context, sound_id=sound_id):
+        return
+
+    if _try_play_sound(context):
+        return
 
     sys.stdout.write("\a")
     sys.stdout.flush()
 
 
+def _ensure_chime_sound_id(filepath: str) -> str | None:
+    try:
+        sound = bpy.data.sounds.load(filepath, check_existing=True)
+    except RuntimeError:
+        sound = bpy.data.sounds.get(Path(filepath).name)
+    except Exception:
+        sound = None
+
+    if sound is None:
+        sound = bpy.data.sounds.get(Path(filepath).name)
+
+    name = getattr(sound, "name", None)
+    if isinstance(name, str) and name:
+        return name
+    return None
+
+
+def _play_chime_sound(context: bpy.types.Context | None = None) -> bool:
+    filepath = _get_chime_filepath()
+    if not filepath:
+        return False
+
+    if _try_play_sound(context, filepath=filepath):
+        return True
+
+    sound_id = _ensure_chime_sound_id(filepath)
+    if sound_id and _try_play_sound(context, sound_id=sound_id):
+        return True
+
+    return False
+
+
 def _play_completion_sound(context: bpy.types.Context | None = None) -> None:
+    if _play_chime_sound(context):
+        return
+
     _play_sound("INFO", context)
 
 
