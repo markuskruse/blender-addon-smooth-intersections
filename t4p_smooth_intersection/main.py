@@ -26,6 +26,10 @@ TRIANGULATE_OPERATOR_IDNAME = "t4p_smooth_intersection.triangulate_selected"
 _CHIME_FILENAME = "chime.wav"
 _WARNING_FILENAME = "warning.wav"
 _SOUND_FILEPATH_CACHE: dict[str, str] = {}
+_AUD_DEVICE = None
+_AUD_MODULE = None
+_AUD_IMPORT_FAILED = False
+_AUD_HANDLES: list[object] = []
 
 
 def _resolve_sound_filepath(filename: str, cache_key: str) -> str | None:
@@ -98,6 +102,64 @@ def _play_sound(sound_id: str, context: bpy.types.Context | None = None) -> None
     sys.stdout.flush()
 
 
+def _cleanup_aud_handles(aud_module) -> None:
+    if not _AUD_HANDLES:
+        return
+
+    invalid_status = getattr(aud_module, "AUD_STATUS_INVALID", None)
+    stopped_status = getattr(aud_module, "AUD_STATUS_STOPPED", None)
+    active_handles: list[object] = []
+    for handle in _AUD_HANDLES:
+        status = getattr(handle, "status", None)
+        if status is None:
+            active_handles.append(handle)
+            continue
+
+        if status in (invalid_status, stopped_status):
+            continue
+
+        active_handles.append(handle)
+
+    _AUD_HANDLES[:] = active_handles
+
+
+def _play_sound_with_aud(filepath: str) -> bool:
+    global _AUD_DEVICE, _AUD_MODULE, _AUD_IMPORT_FAILED
+
+    if not filepath or _AUD_IMPORT_FAILED:
+        return False
+
+    if _AUD_MODULE is None:
+        try:
+            import aud as aud_module  # type: ignore[import-not-found]
+        except Exception:
+            _AUD_IMPORT_FAILED = True
+            return False
+        _AUD_MODULE = aud_module
+
+    aud_module = _AUD_MODULE
+    if aud_module is None:
+        return False
+
+    if _AUD_DEVICE is None:
+        try:
+            _AUD_DEVICE = aud_module.Device()
+        except Exception:
+            return False
+
+    try:
+        factory = aud_module.Factory(filepath)
+        handle = _AUD_DEVICE.play(factory) if _AUD_DEVICE is not None else None
+    except Exception:
+        return False
+
+    if handle is not None:
+        _cleanup_aud_handles(aud_module)
+        _AUD_HANDLES.append(handle)
+
+    return True
+
+
 def _ensure_sound_id(filepath: str) -> str | None:
     try:
         sound = bpy.data.sounds.load(filepath, check_existing=True)
@@ -124,6 +186,9 @@ def _play_file_sound(filepath: str | None, context: bpy.types.Context | None = N
 
     sound_id = _ensure_sound_id(filepath)
     if sound_id and _try_play_sound(context, sound_id=sound_id):
+        return True
+
+    if _play_sound_with_aud(filepath):
         return True
 
     return False
