@@ -1,10 +1,20 @@
 """Core utilities and registration for the T4P clean add-on."""
 from __future__ import annotations
 
+import os
+
 import bmesh
 import bpy
 from bpy.props import IntProperty
 from mathutils.bvhtree import BVHTree
+
+try:
+    import aud  # type: ignore[attr-defined]
+except Exception as exc:  # pragma: no cover - Blender provides ``aud``.
+    aud = None  # type: ignore[assignment]
+    _AUDIO_IMPORT_ERROR = exc
+else:
+    _AUDIO_IMPORT_ERROR = None
 
 SMOOTH_OPERATOR_IDNAME = "t4p_smooth_intersection.smooth_intersections"
 FILTER_OPERATOR_IDNAME = "t4p_smooth_intersection.filter_intersections"
@@ -16,19 +26,90 @@ CLEAN_NON_MANIFOLD_OPERATOR_IDNAME = (
 )
 TRIANGULATE_OPERATOR_IDNAME = "t4p_smooth_intersection.triangulate_selected"
 
+_AUDIO_DEVICE: aud.Device | None
+_AUDIO_DEVICE = None
+_AUDIO_DEVICE_UNAVAILABLE = False
+_ADDON_DIR = os.path.dirname(__file__)
+_HAPPY_SOUND_PATH = os.path.join(_ADDON_DIR, "chime.wav")
+_WARNING_SOUND_PATH = os.path.join(_ADDON_DIR, "warning.wav")
+
+
+def _report_audio_issue(context: bpy.types.Context | None, message: str) -> None:
+    """Report an audio related issue to the system console."""
+
+    print(f"[T4P][audio] {message}")
+
+
+def _get_audio_device(context: bpy.types.Context | None = None) -> aud.Device | None:
+    """Return a shared audio device when available."""
+
+    global _AUDIO_DEVICE, _AUDIO_DEVICE_UNAVAILABLE
+
+    if bpy.app.background:
+        return None
+    if _AUDIO_DEVICE_UNAVAILABLE:
+        return None
+    if aud is None:
+        if not _AUDIO_DEVICE_UNAVAILABLE:
+            details = (
+                f"Failed to import Blender's audio module: {_AUDIO_IMPORT_ERROR}"
+                if _AUDIO_IMPORT_ERROR is not None
+                else "The 'aud' module is not available; sound notifications are disabled."
+            )
+            _report_audio_issue(context, details)
+        _AUDIO_DEVICE_UNAVAILABLE = True
+        return None
+
+    if _AUDIO_DEVICE is None:
+        try:
+            _AUDIO_DEVICE = aud.Device()  # type: ignore[attr-defined]
+        except Exception as exc:  # pragma: no cover - Blender specific failure path.
+            _report_audio_issue(context, f"Unable to create audio device: {exc}")
+            _AUDIO_DEVICE = None
+            _AUDIO_DEVICE_UNAVAILABLE = True
+
+    return _AUDIO_DEVICE
+
+
+def _play_sound(
+    context: bpy.types.Context | None,
+    sound_path: str,
+    *,
+    volume: float = 1.0,
+    pitch: float = 1.0,
+) -> None:
+    """Play a sound file through Blender's shared audio device."""
+
+    device = _get_audio_device(context)
+    if device is None:
+        return
+
+    if not os.path.isfile(sound_path):
+        _report_audio_issue(
+            context, f"Audio file missing: '{os.path.basename(sound_path)}'"
+        )
+        return
+
+    try:
+        sound = aud.Sound(sound_path)  # type: ignore[attr-defined]
+        if pitch != 1.0:
+            sound = sound.pitch(pitch)
+        device.volume = volume
+        device.play(sound)
+    except Exception as exc:  # pragma: no cover - depends on runtime environment.
+        _report_audio_issue(context, f"Failed to play sound '{sound_path}': {exc}")
+
 
 def _play_happy_sound(context: bpy.types.Context | None = None) -> None:
-    """Stub that represents a happy chime."""
+    """Play the confirmation chime when operations succeed."""
 
-    message = "[T4P] Happy chime (stub)"
-    print(message)
+    _play_sound(context, _HAPPY_SOUND_PATH)
 
 
 def _play_warning_sound(context: bpy.types.Context | None = None) -> None:
-    """Stub that represents a warning chime."""
+    """Play a warning chime when issues are detected."""
 
-    message = "[T4P] Warning chime (stub)"
-    print(message)
+    _play_sound(context, _WARNING_SOUND_PATH)
 
 
 def _get_intersecting_face_indices(bm: bmesh.types.BMesh) -> set[int]:
