@@ -1,4 +1,4 @@
-"""User interface panel for the T4P Smooth Intersection add-on."""
+"""User interface panel for the T4P clean add-on."""
 
 from __future__ import annotations
 

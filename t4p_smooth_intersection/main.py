@@ -1,4 +1,4 @@
-"""Core utilities and registration for the T4P Smooth Intersection add-on."""
+"""Core utilities and registration for the T4P clean add-on."""
 
 from __future__ import annotations
 
