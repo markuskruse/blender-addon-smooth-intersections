@@ -6,4 +6,4 @@ Richcraft - chime 4 20181219.wav by richcraftstudios -- https://freesound.org/s/
 
 Warning chime sound:
 
-Odd glitch .wav by JacksonMiller0 -- https://freesound.org/s/371603/ -- License: Creative Commons 0
+error 2.aiff by lluiset7 -- https://freesound.org/s/141334/ -- License: Creative Commons 0
