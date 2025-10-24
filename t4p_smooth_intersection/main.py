@@ -1,11 +1,8 @@
 """Core utilities and registration for the T4P clean add-on."""
-
 from __future__ import annotations
 
-import sys
 import time
 from functools import wraps
-from pathlib import Path
 
 import bmesh
 import bpy
@@ -23,197 +20,18 @@ CLEAN_NON_MANIFOLD_OPERATOR_IDNAME = (
 TRIANGULATE_OPERATOR_IDNAME = "t4p_smooth_intersection.triangulate_selected"
 
 
-_CHIME_FILENAME = "chime.wav"
-_WARNING_FILENAME = "warning.wav"
-_SOUND_FILEPATH_CACHE: dict[str, str] = {}
-_AUD_DEVICE = None
-_AUD_MODULE = None
-_AUD_IMPORT_FAILED = False
-_AUD_HANDLES: list[object] = []
-
-
-def _resolve_sound_filepath(filename: str, cache_key: str) -> str | None:
-    cached = _SOUND_FILEPATH_CACHE.get(cache_key)
-    if cached is not None:
-        return cached or None
-
-    candidate = Path(__file__).resolve().parent / filename
-    resolved = str(candidate) if candidate.exists() else ""
-    _SOUND_FILEPATH_CACHE[cache_key] = resolved
-    return resolved or None
-
-
-def _get_chime_filepath() -> str | None:
-    return _resolve_sound_filepath(_CHIME_FILENAME, "chime")
-
-
-def _get_warning_filepath() -> str | None:
-    return _resolve_sound_filepath(_WARNING_FILENAME, "warning")
-
-
-def _get_sound_operator():
-    return getattr(getattr(bpy.ops, "wm", None), "sound_play", None)
-
-
-def _iter_sound_operator_overrides(context: bpy.types.Context | None):
-    override: dict[str, object] = {}
-    if context is not None:
-        window = getattr(context, "window", None)
-        area = getattr(context, "area", None)
-        region = getattr(context, "region", None)
-        if window is not None and area is not None and region is not None:
-            override = {"window": window, "area": area, "region": region}
-
-    if override:
-        yield override
-    yield {}
-
-
-def _try_play_sound(context: bpy.types.Context | None, **kwargs) -> bool:
-    sound_operator = _get_sound_operator()
-    if sound_operator is None:
-        return False
-
-    for override in _iter_sound_operator_overrides(context):
-        try:
-            if override:
-                sound_operator(override, **kwargs)
-            else:
-                sound_operator(**kwargs)
-            return True
-        except TypeError:
-            continue
-        except Exception:
-            continue
-
-    return False
-
-
-def _play_sound(sound_id: str, context: bpy.types.Context | None = None) -> None:
-    """Play a short notification sound, falling back to a terminal bell."""
-
-    if _try_play_sound(context, sound_id=sound_id):
-        return
-
-    if _try_play_sound(context):
-        return
-
-    sys.stdout.write("\a")
-    sys.stdout.flush()
-
-
-def _cleanup_aud_handles(aud_module) -> None:
-    if not _AUD_HANDLES:
-        return
-
-    invalid_status = getattr(aud_module, "AUD_STATUS_INVALID", None)
-    stopped_status = getattr(aud_module, "AUD_STATUS_STOPPED", None)
-    active_handles: list[object] = []
-    for handle in _AUD_HANDLES:
-        status = getattr(handle, "status", None)
-        if status is None:
-            active_handles.append(handle)
-            continue
-
-        if status in (invalid_status, stopped_status):
-            continue
-
-        active_handles.append(handle)
-
-    _AUD_HANDLES[:] = active_handles
-
-
-def _play_sound_with_aud(filepath: str) -> bool:
-    global _AUD_DEVICE, _AUD_MODULE, _AUD_IMPORT_FAILED
-
-    if not filepath or _AUD_IMPORT_FAILED:
-        return False
-
-    if _AUD_MODULE is None:
-        try:
-            import aud as aud_module  # type: ignore[import-not-found]
-        except Exception:
-            _AUD_IMPORT_FAILED = True
-            return False
-        _AUD_MODULE = aud_module
-
-    aud_module = _AUD_MODULE
-    if aud_module is None:
-        return False
-
-    if _AUD_DEVICE is None:
-        try:
-            _AUD_DEVICE = aud_module.Device()
-        except Exception:
-            return False
-
-    try:
-        factory = aud_module.Factory(filepath)
-        handle = _AUD_DEVICE.play(factory) if _AUD_DEVICE is not None else None
-    except Exception:
-        return False
-
-    if handle is not None:
-        _cleanup_aud_handles(aud_module)
-        _AUD_HANDLES.append(handle)
-
-    return True
-
-
-def _ensure_sound_id(filepath: str) -> str | None:
-    try:
-        sound = bpy.data.sounds.load(filepath, check_existing=True)
-    except RuntimeError:
-        sound = bpy.data.sounds.get(Path(filepath).name)
-    except Exception:
-        sound = None
-
-    if sound is None:
-        sound = bpy.data.sounds.get(Path(filepath).name)
-
-    name = getattr(sound, "name", None)
-    if isinstance(name, str) and name:
-        return name
-    return None
-
-
-def _play_file_sound(filepath: str | None, context: bpy.types.Context | None = None) -> bool:
-    if not filepath:
-        return False
-
-    if _try_play_sound(context, filepath=filepath):
-        return True
-
-    sound_id = _ensure_sound_id(filepath)
-    if sound_id and _try_play_sound(context, sound_id=sound_id):
-        return True
-
-    if _play_sound_with_aud(filepath):
-        return True
-
-    return False
-
-
-def _play_chime_sound(context: bpy.types.Context | None = None) -> bool:
-    return _play_file_sound(_get_chime_filepath(), context)
-
-
-def _play_completion_sound(context: bpy.types.Context | None = None) -> None:
-    if _play_chime_sound(context):
-        return
-
-    _play_sound("INFO", context)
-
-
 def _play_happy_sound(context: bpy.types.Context | None = None) -> None:
-    _play_completion_sound(context)
+    """Stub that represents a happy chime."""
+
+    message = "[T4P] Happy chime (stub)"
+    print(message)
 
 
 def _play_warning_sound(context: bpy.types.Context | None = None) -> None:
-    if _play_file_sound(_get_warning_filepath(), context):
-        return
+    """Stub that represents a warning chime."""
 
-    _play_sound("WARNING", context)
+    message = "[T4P] Warning chime (stub)"
+    print(message)
 
 
 def _ensure_operation_is_timed(operator_cls: type[bpy.types.Operator]) -> None:
@@ -234,10 +52,6 @@ def _ensure_operation_is_timed(operator_cls: type[bpy.types.Operator]) -> None:
         finally:
             elapsed = time.perf_counter() - start_time
             operator_cls.t4p_last_execution_seconds = elapsed
-            if elapsed >= 10.0 and not getattr(
-                operator_cls, "t4p_disable_long_running_sound", False
-            ):
-                _play_completion_sound(context)
 
     timed_execute._t4p_is_timed = True  # type: ignore[attr-defined]
     setattr(operator_cls, "execute", timed_execute)
