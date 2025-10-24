@@ -1,4 +1,4 @@
-"""Operator modules for the T4P Smooth Intersection add-on."""
+"""Operator modules for the T4P clean add-on."""
 
 from .clean_non_manifold import T4P_OT_clean_non_manifold
 from .filter_intersections import T4P_OT_filter_intersections

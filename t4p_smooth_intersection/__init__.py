@@ -1,4 +1,4 @@
-"""Entry point for the T4P Smooth Intersection add-on."""
+"""Entry point for the T4P clean add-on."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from .operations import (
 )
 
 bl_info = {
-    "name": "T4P Smooth Intersection",
+    "name": "T4P clean",
     "author": "T4P",
     "version": (0, 0, 1),
     "blender": (4, 5, 0),
