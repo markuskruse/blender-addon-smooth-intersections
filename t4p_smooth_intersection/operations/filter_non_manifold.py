@@ -6,7 +6,11 @@ import bmesh
 import bpy
 from bpy.types import Operator
 
-from ..main import FILTER_NON_MANIFOLD_OPERATOR_IDNAME
+from ..main import (
+    FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
+    _play_happy_sound,
+    _play_warning_sound,
+)
 
 
 class T4P_OT_filter_non_manifold(Operator):
@@ -16,6 +20,7 @@ class T4P_OT_filter_non_manifold(Operator):
     bl_label = "Filter Non Manifold"
     bl_description = "Deselect selected mesh objects with non-manifold geometry"
     bl_options = {"REGISTER", "UNDO"}
+    t4p_disable_long_running_sound = True
 
     def execute(self, context):
         if context.mode != "OBJECT":
@@ -83,6 +88,7 @@ class T4P_OT_filter_non_manifold(Operator):
             self.report({"INFO"}, "No mesh objects selected.")
         elif not non_manifold_list:
             self.report({"INFO"}, "All checked mesh objects are manifold.")
+            _play_happy_sound(context)
         else:
             self.report(
                 {"INFO"},
@@ -90,6 +96,7 @@ class T4P_OT_filter_non_manifold(Operator):
                     ", ".join(obj.name for obj in non_manifold_list)
                 ),
             )
+            _play_warning_sound(context)
 
         return {"FINISHED"}
 
