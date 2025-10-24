@@ -6,7 +6,11 @@ import bmesh
 import bpy
 from bpy.types import Operator
 
-from ..main import CLEAN_NON_MANIFOLD_OPERATOR_IDNAME, _triangulate_edit_bmesh
+from ..main import (
+    CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
+    _play_happy_sound,
+    _triangulate_edit_bmesh,
+)
 
 
 def _get_mesh_vertex_islands(
@@ -305,6 +309,8 @@ class T4P_OT_clean_non_manifold(Operator):
             )
         else:
             self.report({"INFO"}, "No changes made to selected meshes.")
+
+        _play_happy_sound(context)
 
         return {"FINISHED"}
 

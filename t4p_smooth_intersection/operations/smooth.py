@@ -13,6 +13,8 @@ from mathutils.bvhtree import BVHTree
 from ..main import (
     SMOOTH_OPERATOR_IDNAME,
     _get_intersecting_face_indices,
+    _play_happy_sound,
+    _play_warning_sound,
     _select_intersecting_faces,
     _triangulate_mesh,
 )
@@ -464,6 +466,22 @@ class T4P_OT_smooth_intersections(Operator):
             context.view_layer.objects.active = initial_active
         elif initial_active is None:
             context.view_layer.objects.active = None
+
+        remaining_intersections = False
+        scene_for_check = context.scene
+        for obj in initial_selection:
+            if obj.type != "MESH" or obj.data is None:
+                continue
+            if scene_for_check is not None and scene_for_check.objects.get(obj.name) is None:
+                continue
+            if _mesh_has_intersections(obj.data):
+                remaining_intersections = True
+                break
+
+        if remaining_intersections:
+            _play_warning_sound(context)
+        else:
+            _play_happy_sound(context)
 
         if not smoothed_objects:
             self.report({"INFO"}, "No intersecting faces were found.")
