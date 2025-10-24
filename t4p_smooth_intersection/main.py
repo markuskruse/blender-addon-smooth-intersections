@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import sys
+import time
+from functools import wraps
+
 import bmesh
 import bpy
 from bpy.props import IntProperty
@@ -27,6 +31,56 @@ bl_info = {
     "warning": "",
     "category": "3D View",
 }
+
+
+def _play_completion_sound(context: bpy.types.Context | None = None) -> None:
+    """Play a short notification sound, falling back to a terminal bell."""
+
+    sound_operator = getattr(getattr(bpy.ops, "wm", None), "sound_play", None)
+    if sound_operator is not None:
+        override: dict[str, object] = {}
+        if context is not None:
+            window = getattr(context, "window", None)
+            area = getattr(context, "area", None)
+            region = getattr(context, "region", None)
+            if window is not None and area is not None and region is not None:
+                override = {"window": window, "area": area, "region": region}
+        try:
+            if override:
+                sound_operator(override)
+            else:
+                sound_operator()
+            return
+        except Exception:
+            pass
+
+    sys.stdout.write("\a")
+    sys.stdout.flush()
+
+
+def _ensure_operation_is_timed(operator_cls: type[bpy.types.Operator]) -> None:
+    """Wrap ``execute`` so the runtime is measured for all operator classes."""
+
+    if not issubclass(operator_cls, bpy.types.Operator):
+        return
+
+    original_execute = getattr(operator_cls, "execute", None)
+    if original_execute is None or getattr(original_execute, "_t4p_is_timed", False):
+        return
+
+    @wraps(original_execute)
+    def timed_execute(self, context):  # type: ignore[override]
+        start_time = time.perf_counter()
+        try:
+            return original_execute(self, context)
+        finally:
+            elapsed = time.perf_counter() - start_time
+            operator_cls.t4p_last_execution_seconds = elapsed
+            if elapsed >= 10.0:
+                _play_completion_sound(context)
+
+    timed_execute._t4p_is_timed = True  # type: ignore[attr-defined]
+    setattr(operator_cls, "execute", timed_execute)
 
 
 def _get_intersecting_face_indices(bm: bmesh.types.BMesh) -> set[int]:
@@ -138,14 +192,18 @@ def _iter_classes():
     from .operations.triangulate import T4P_OT_triangulate_selected
     from .gui import T4P_PT_main_panel
 
-    return (
+    operator_classes = [
         T4P_OT_smooth_intersections,
         T4P_OT_filter_intersections,
         T4P_OT_filter_non_manifold,
         T4P_OT_clean_non_manifold,
         T4P_OT_triangulate_selected,
-        T4P_PT_main_panel,
-    )
+    ]
+
+    for operator_cls in operator_classes:
+        _ensure_operation_is_timed(operator_cls)
+
+    return (*operator_classes, T4P_PT_main_panel)
 
 
 def register() -> None:
