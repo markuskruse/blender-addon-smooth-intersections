@@ -9,7 +9,6 @@ from .main import (
     FILTER_OPERATOR_IDNAME,
     SMOOTH_OPERATOR_IDNAME,
     TRIANGULATE_OPERATOR_IDNAME,
-    bl_info,
     register,
     unregister,
 )
