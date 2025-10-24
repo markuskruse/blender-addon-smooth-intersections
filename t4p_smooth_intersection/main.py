@@ -1,9 +1,6 @@
 """Core utilities and registration for the T4P clean add-on."""
 from __future__ import annotations
 
-import time
-from functools import wraps
-
 import bmesh
 import bpy
 from bpy.props import IntProperty
@@ -32,29 +29,6 @@ def _play_warning_sound(context: bpy.types.Context | None = None) -> None:
 
     message = "[T4P] Warning chime (stub)"
     print(message)
-
-
-def _ensure_operation_is_timed(operator_cls: type[bpy.types.Operator]) -> None:
-    """Wrap ``execute`` so the runtime is measured for all operator classes."""
-
-    if not issubclass(operator_cls, bpy.types.Operator):
-        return
-
-    original_execute = getattr(operator_cls, "execute", None)
-    if original_execute is None or getattr(original_execute, "_t4p_is_timed", False):
-        return
-
-    @wraps(original_execute)
-    def timed_execute(self, context):  # type: ignore[override]
-        start_time = time.perf_counter()
-        try:
-            return original_execute(self, context)
-        finally:
-            elapsed = time.perf_counter() - start_time
-            operator_cls.t4p_last_execution_seconds = elapsed
-
-    timed_execute._t4p_is_timed = True  # type: ignore[attr-defined]
-    setattr(operator_cls, "execute", timed_execute)
 
 
 def _get_intersecting_face_indices(bm: bmesh.types.BMesh) -> set[int]:
@@ -173,9 +147,6 @@ def _iter_classes():
         T4P_OT_clean_non_manifold,
         T4P_OT_triangulate_selected,
     ]
-
-    for operator_cls in operator_classes:
-        _ensure_operation_is_timed(operator_cls)
 
     return (*operator_classes, T4P_PT_main_panel)
 
