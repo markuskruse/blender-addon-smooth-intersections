@@ -5,7 +5,12 @@ from __future__ import annotations
 import bpy
 from bpy.types import Operator
 
-from ..main import FILTER_OPERATOR_IDNAME, _select_intersecting_faces_on_mesh
+from ..main import (
+    FILTER_OPERATOR_IDNAME,
+    _play_happy_sound,
+    _play_warning_sound,
+    _select_intersecting_faces_on_mesh,
+)
 
 
 class T4P_OT_filter_intersections(Operator):
@@ -15,6 +20,7 @@ class T4P_OT_filter_intersections(Operator):
     bl_label = "Filter Intersections"
     bl_description = "Deselect selected objects without self-intersections"
     bl_options = {"REGISTER", "UNDO"}
+    t4p_disable_long_running_sound = True
 
     def execute(self, context):
         if context.mode != "OBJECT":
@@ -29,10 +35,12 @@ class T4P_OT_filter_intersections(Operator):
             return {"FINISHED"}
 
         objects_with_intersections: list[bpy.types.Object] = []
+        mesh_candidates = 0
 
         for obj in selected_objects:
             has_intersections = False
             if obj.type == "MESH" and obj.data is not None:
+                mesh_candidates += 1
                 try:
                     face_count = _select_intersecting_faces_on_mesh(obj.data)
                 except RuntimeError:
@@ -53,7 +61,13 @@ class T4P_OT_filter_intersections(Operator):
         context.view_layer.objects.active = new_active
 
         if not objects_with_intersections:
-            self.report({"INFO"}, "No self-intersections detected on selected objects.")
+            if mesh_candidates == 0:
+                self.report({"INFO"}, "No mesh objects selected.")
+            else:
+                self.report(
+                    {"INFO"}, "No self-intersections detected on selected objects."
+                )
+                _play_happy_sound(context)
         else:
             self.report(
                 {"INFO"},
@@ -61,6 +75,7 @@ class T4P_OT_filter_intersections(Operator):
                     ", ".join(obj.name for obj in objects_with_intersections)
                 ),
             )
+            _play_warning_sound(context)
 
         return {"FINISHED"}
 

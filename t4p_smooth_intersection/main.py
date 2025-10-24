@@ -22,7 +22,7 @@ CLEAN_NON_MANIFOLD_OPERATOR_IDNAME = (
 TRIANGULATE_OPERATOR_IDNAME = "t4p_smooth_intersection.triangulate_selected"
 
 
-def _play_completion_sound(context: bpy.types.Context | None = None) -> None:
+def _play_sound(sound_id: str, context: bpy.types.Context | None = None) -> None:
     """Play a short notification sound, falling back to a terminal bell."""
 
     sound_operator = getattr(getattr(bpy.ops, "wm", None), "sound_play", None)
@@ -34,17 +34,40 @@ def _play_completion_sound(context: bpy.types.Context | None = None) -> None:
             region = getattr(context, "region", None)
             if window is not None and area is not None and region is not None:
                 override = {"window": window, "area": area, "region": region}
+
         try:
+            kwargs = {"sound_id": sound_id}
             if override:
-                sound_operator(override)
+                sound_operator(override, **kwargs)
             else:
-                sound_operator()
+                sound_operator(**kwargs)
             return
+        except TypeError:
+            try:
+                if override:
+                    sound_operator(override)
+                else:
+                    sound_operator()
+                return
+            except Exception:
+                pass
         except Exception:
             pass
 
     sys.stdout.write("\a")
     sys.stdout.flush()
+
+
+def _play_completion_sound(context: bpy.types.Context | None = None) -> None:
+    _play_sound("INFO", context)
+
+
+def _play_happy_sound(context: bpy.types.Context | None = None) -> None:
+    _play_completion_sound(context)
+
+
+def _play_warning_sound(context: bpy.types.Context | None = None) -> None:
+    _play_sound("WARNING", context)
 
 
 def _ensure_operation_is_timed(operator_cls: type[bpy.types.Operator]) -> None:
@@ -65,7 +88,9 @@ def _ensure_operation_is_timed(operator_cls: type[bpy.types.Operator]) -> None:
         finally:
             elapsed = time.perf_counter() - start_time
             operator_cls.t4p_last_execution_seconds = elapsed
-            if elapsed >= 10.0:
+            if elapsed >= 10.0 and not getattr(
+                operator_cls, "t4p_disable_long_running_sound", False
+            ):
                 _play_completion_sound(context)
 
     timed_execute._t4p_is_timed = True  # type: ignore[attr-defined]
