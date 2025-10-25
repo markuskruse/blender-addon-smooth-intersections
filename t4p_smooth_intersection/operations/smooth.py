@@ -379,10 +379,6 @@ def _try_shrink_fatten(
     if max_length <= 0.0:
         return False
 
-    distance = max_length * 0.1
-    if abs(distance) <= 1e-6:
-        return False
-
     relevant_vertices = {
         vert
         for face in faces
@@ -417,10 +413,18 @@ def _try_shrink_fatten(
         bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
         return False
 
-    if _attempt(distance):
-        return True
+    for scale in (0.1, 0.2):
+        distance = max_length * scale
+        if abs(distance) <= 1e-6:
+            continue
 
-    return _attempt(-distance)
+        if _attempt(distance):
+            return True
+
+        if _attempt(-distance):
+            return True
+
+    return False
 
 
 def _handle_remaining_intersections(
