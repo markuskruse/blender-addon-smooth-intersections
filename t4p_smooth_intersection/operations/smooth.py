@@ -255,6 +255,8 @@ def _process_intersecting_face(
     iteration: int,
     sharp_angle_threshold: float,
 ) -> bool:
+    if not face.is_valid or not face.loops:
+        return False
     smallest_angle = _find_smallest_face_angle(face)
     if smallest_angle >= sharp_angle_threshold:
         return False
@@ -282,10 +284,14 @@ def _split_faces_once(
         return False
     bm.edges.ensure_lookup_table()
     iteration_split = False
-    for face_index, face in _iter_valid_intersecting_faces(bm, intersection_indices):
-        if _process_intersecting_face(
-            bm, face_index, face, iteration, sharp_angle_threshold
-        ):
+    for face_index, _ in _iter_valid_intersecting_faces(bm, intersection_indices):
+        bm.faces.ensure_lookup_table()
+        if face_index >= len(bm.faces):
+            continue
+        face = bm.faces[face_index]
+        if not face.is_valid or len(face.edges) < 3:
+            continue
+        if _process_intersecting_face(bm, face_index, face, iteration, sharp_angle_threshold):
             iteration_split = True
     return iteration_split
 
