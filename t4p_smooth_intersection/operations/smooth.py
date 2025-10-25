@@ -151,6 +151,66 @@ def _group_intersecting_bounding_boxes(
     return groups
 
 
+def _split_elongated_intersecting_faces(
+    mesh: bpy.types.Mesh,
+    bm: bmesh.types.BMesh,
+    elongation_ratio: float = 3.0,
+) -> bool:
+    """Split intersecting faces whose aspect ratio is above ``elongation_ratio``."""
+
+    intersection_indices = _get_intersecting_face_indices(bm)
+    if not intersection_indices:
+        return False
+
+    bm.faces.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
+
+    edges_to_split: dict[int, bmesh.types.BMEdge] = {}
+    for face_index in intersection_indices:
+        if face_index >= len(bm.faces):
+            continue
+
+        face = bm.faces[face_index]
+        if not face.is_valid or len(face.edges) < 3:
+            continue
+
+        edge_lengths: list[tuple[float, bmesh.types.BMEdge]] = []
+        for edge in face.edges:
+            if not edge.is_valid:
+                continue
+            length = edge.calc_length()
+            if length <= 1e-6:
+                continue
+            edge_lengths.append((length, edge))
+
+        if len(edge_lengths) < 2:
+            continue
+
+        max_length = max(length for length, _ in edge_lengths)
+        min_length = min(length for length, _ in edge_lengths)
+        if min_length <= 0.0:
+            continue
+
+        if max_length > elongation_ratio * min_length:
+            # The shortest edge is opposite the shared vertex of the two longest edges.
+            _, shortest_edge = min(edge_lengths, key=lambda item: item[0])
+            if shortest_edge.is_valid:
+                edges_to_split[shortest_edge.index] = shortest_edge
+
+    if not edges_to_split:
+        return False
+
+    bmesh.ops.subdivide_edges(
+        bm,
+        edges=list(edges_to_split.values()),
+        cuts=1,
+        use_grid_fill=False,
+        smooth=0.0,
+    )
+    bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+    return True
+
+
 def _get_selected_visible_face_islands(
     bm: bmesh.types.BMesh,
 ) -> list[list[bmesh.types.BMFace]]:
@@ -353,6 +413,15 @@ def _smooth_object_intersections(
         _triangulate_mesh(mesh)
         bpy.ops.object.mode_set(mode="EDIT")
         bm = bmesh.from_edit_mesh(mesh)
+
+        while _split_elongated_intersecting_faces(mesh, bm):
+            bpy.ops.object.mode_set(mode="OBJECT")
+            _triangulate_mesh(mesh)
+            bpy.ops.object.mode_set(mode="EDIT")
+            bm = bmesh.from_edit_mesh(mesh)
+
+            if not _mesh_has_intersections(mesh, bm):
+                return 0
 
         if not _mesh_has_intersections(mesh, bm):
             return 0
