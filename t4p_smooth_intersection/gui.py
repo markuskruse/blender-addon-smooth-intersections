@@ -43,6 +43,43 @@ class T4P_PT_main_panel(Panel):
 
         controls_col = layout.column(align=True)
 
+        triangulate_row = controls_col.row(align=True)
+        triangulate_row.enabled = is_object_mode and has_selection
+        triangulate_row.operator(
+            TRIANGULATE_OPERATOR_IDNAME,
+            icon="MOD_TRIANGULATE",
+            text="Triangulate all",
+        )
+
+        controls_col.label(text="Filters")
+        filters_row = controls_col.row(align=True)
+        filters_row.enabled = is_object_mode and has_selection
+        filters_row.operator(
+            FILTER_OPERATOR_IDNAME,
+            icon="FILTER",
+            text="Intersections",
+        )
+        filters_row.operator(
+            FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
+            icon="FILTER",
+            text="Non manifold",
+        )
+
+        controls_col.label(text="Cleanup")
+        cleanup_row = controls_col.row(align=True)
+        cleanup_row.enabled = is_object_mode and has_selection
+        cleanup_row.operator(
+            SMOOTH_OPERATOR_IDNAME,
+            icon="MOD_DASH",
+            text="Intersections",
+        )
+        cleanup_row.operator(
+            CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
+            icon="BRUSH_DATA",
+            text="Non manifold",
+        )
+
+        controls_col.label(text="Decimate")
         ratio_row = controls_col.row(align=True)
         if scene is not None and hasattr(scene, "t4p_batch_decimate_ratio"):
             ratio_col = ratio_row.row(align=True)
@@ -58,19 +95,6 @@ class T4P_PT_main_panel(Panel):
             icon="MOD_DECIM",
             text="Batch decimate",
         )
-
-        button_configs = (
-            (SMOOTH_OPERATOR_IDNAME, "MOD_DASH", "Fix intersections"),
-            (FILTER_OPERATOR_IDNAME, "FILTER", "Filter intersections"),
-            (FILTER_NON_MANIFOLD_OPERATOR_IDNAME, "FILTER", "Filter non-manifold"),
-            (CLEAN_NON_MANIFOLD_OPERATOR_IDNAME, "BRUSH_DATA", "Clean non-manifold"),
-            (TRIANGULATE_OPERATOR_IDNAME, "MOD_TRIANGULATE", "Triangulate all"),
-        )
-
-        for operator_id, icon, label in button_configs:
-            row = controls_col.row(align=True)
-            row.enabled = is_object_mode and has_selection
-            row.operator(operator_id, icon=icon, text=label)
 
 
 __all__ = ("T4P_PT_main_panel",)
