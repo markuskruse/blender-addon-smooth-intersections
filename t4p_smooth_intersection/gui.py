@@ -6,6 +6,7 @@ import bpy
 from bpy.types import Panel
 
 from .main import (
+    BATCH_DECIMATE_OPERATOR_IDNAME,
     CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
     FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
     FILTER_OPERATOR_IDNAME,
@@ -41,6 +42,23 @@ class T4P_PT_main_panel(Panel):
         has_selection = bool(getattr(context, "selected_objects", []))
 
         controls_col = layout.column(align=True)
+
+        ratio_row = controls_col.row(align=True)
+        if scene is not None and hasattr(scene, "t4p_batch_decimate_ratio"):
+            ratio_col = ratio_row.row(align=True)
+            ratio_col.prop(scene, "t4p_batch_decimate_ratio", text="", slider=False)
+        else:
+            ratio_col = ratio_row.row(align=True)
+            ratio_col.label(text="Ratio: 0.50")
+
+        button_col = ratio_row.row(align=True)
+        button_col.enabled = is_object_mode and has_selection
+        button_col.operator(
+            BATCH_DECIMATE_OPERATOR_IDNAME,
+            icon="MOD_DECIM",
+            text="Batch decimate",
+        )
+
         button_configs = (
             (SMOOTH_OPERATOR_IDNAME, "MOD_DASH", "Fix intersections"),
             (FILTER_OPERATOR_IDNAME, "FILTER", "Filter intersections"),
