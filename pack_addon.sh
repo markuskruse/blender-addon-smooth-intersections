@@ -17,7 +17,11 @@ fi
 DIST_DIR="${SCRIPT_DIR}/dist"
 mkdir -p "${DIST_DIR}"
 
-OUTPUT_NAME="${1:-${ADDON_DIR}.zip}"
+# Default archive name should reflect the user-facing add-on name rather than the
+# internal module directory. This ensures the packaged zip aligns with how the
+# plug-in is presented in Blender ("T4P clean").
+DEFAULT_ZIP_NAME="T4P-Clean.zip"
+OUTPUT_NAME="${1:-${DEFAULT_ZIP_NAME}}"
 # If the user provided a relative path, place it inside dist for consistency.
 if [[ "${OUTPUT_NAME}" != /* ]]; then
   OUTPUT_PATH="${DIST_DIR}/${OUTPUT_NAME}"
