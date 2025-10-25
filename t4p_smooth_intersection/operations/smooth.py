@@ -7,6 +7,8 @@ from typing import List
 import bmesh
 import bpy
 from bpy.types import Operator
+from math import radians
+
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
@@ -156,7 +158,7 @@ def _split_elongated_intersecting_faces(
     bm: bmesh.types.BMesh,
     elongation_ratio: float = 3.0,
 ) -> bool:
-    """Split intersecting faces whose aspect ratio is above ``elongation_ratio``."""
+    """Split intersecting faces to reduce elongation and sharp angles."""
 
     intersection_indices = _get_intersecting_face_indices(bm)
     if not intersection_indices:
@@ -165,6 +167,7 @@ def _split_elongated_intersecting_faces(
     bm.faces.ensure_lookup_table()
     bm.edges.ensure_lookup_table()
 
+    sharp_angle_threshold = radians(30.0)
     edges_to_split: dict[int, bmesh.types.BMEdge] = {}
     for face_index in intersection_indices:
         if face_index >= len(bm.faces):
@@ -184,6 +187,23 @@ def _split_elongated_intersecting_faces(
             edge_lengths.append((length, edge))
 
         if len(edge_lengths) < 2:
+            continue
+
+        smallest_angle = float("inf")
+        for loop in face.loops:
+            prev_vector = loop.link_loop_prev.vert.co - loop.vert.co
+            next_vector = loop.link_loop_next.vert.co - loop.vert.co
+            if prev_vector.length <= 1e-6 or next_vector.length <= 1e-6:
+                continue
+
+            angle = prev_vector.angle(next_vector)
+            if angle < smallest_angle:
+                smallest_angle = angle
+
+        if smallest_angle < sharp_angle_threshold:
+            _, longest_edge = max(edge_lengths, key=lambda item: item[0])
+            if longest_edge.is_valid:
+                edges_to_split[longest_edge.index] = longest_edge
             continue
 
         max_length = max(length for length, _ in edge_lengths)
