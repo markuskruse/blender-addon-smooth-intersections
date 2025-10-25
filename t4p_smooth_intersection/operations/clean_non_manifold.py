@@ -9,7 +9,7 @@ from bpy.types import Operator
 from ..main import (
     CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
     _play_happy_sound,
-    _triangulate_edit_bmesh,
+    _triangulate_bmesh,
 )
 
 
@@ -173,7 +173,7 @@ def _dissolve_degenerate_and_triangulate(
             or result_get("region_verts")
         )
 
-    triangulated = _triangulate_edit_bmesh(bm)
+    triangulated = _triangulate_bmesh(bm)
     return changed or triangulated
 
 
@@ -202,7 +202,7 @@ def _clean_object_non_manifold(obj: bpy.types.Object) -> bool:
 
         bm = bmesh.from_edit_mesh(mesh)
 
-        if _triangulate_edit_bmesh(bm):
+        if _triangulate_bmesh(bm):
             changed = True
 
         if _delete_small_vertex_islands(bm, min_vertices=100):

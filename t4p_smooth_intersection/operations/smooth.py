@@ -18,7 +18,7 @@ from ..main import (
     _play_happy_sound,
     _play_warning_sound,
     _select_intersecting_faces,
-    _triangulate_mesh,
+    _triangulate_bmesh,
 )
 
 
@@ -510,15 +510,13 @@ def _smooth_object_intersections(
         if not _mesh_has_intersections(mesh, bm):
             return 0
 
-        bpy.ops.object.mode_set(mode="OBJECT")
-        _triangulate_mesh(mesh)
-        bpy.ops.object.mode_set(mode="EDIT")
-        bm = bmesh.from_edit_mesh(mesh)
+        if _triangulate_bmesh(bm):
+            bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+            bm = bmesh.from_edit_mesh(mesh)
 
         while _split_elongated_intersecting_faces(mesh, bm):
-            bpy.ops.object.mode_set(mode="OBJECT")
-            _triangulate_mesh(mesh)
-            bpy.ops.object.mode_set(mode="EDIT")
+            if _triangulate_bmesh(bm):
+                bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
             bm = bmesh.from_edit_mesh(mesh)
 
             if not _mesh_has_intersections(mesh, bm):
