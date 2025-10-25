@@ -27,17 +27,7 @@ class T4P_PT_main_panel(Panel):
     def draw(self, context):
         layout = self.layout
 
-        props_col = layout.column()
         scene = context.scene
-        if scene is not None and hasattr(scene, "t4p_smooth_intersection_attempts"):
-            props_col.prop(
-                scene,
-                "t4p_smooth_intersection_attempts",
-                text="Smoothing attempts",
-            )
-        else:
-            props_col.label(text="Smoothing attempts: 5")
-
         is_object_mode = context.mode == "OBJECT"
         has_selection = bool(getattr(context, "selected_objects", []))
 
@@ -47,7 +37,6 @@ class T4P_PT_main_panel(Panel):
         triangulate_row.enabled = is_object_mode and has_selection
         triangulate_row.operator(
             TRIANGULATE_OPERATOR_IDNAME,
-            icon="MOD_TRIANGULATE",
             text="Triangulate all",
         )
 
@@ -56,26 +45,32 @@ class T4P_PT_main_panel(Panel):
         filters_row.enabled = is_object_mode and has_selection
         filters_row.operator(
             FILTER_OPERATOR_IDNAME,
-            icon="FILTER",
             text="Intersections",
         )
         filters_row.operator(
             FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
-            icon="FILTER",
             text="Non manifold",
         )
 
         controls_col.label(text="Cleanup")
-        cleanup_row = controls_col.row(align=True)
+        cleanup_col = controls_col.column(align=True)
+        if scene is not None and hasattr(scene, "t4p_smooth_intersection_attempts"):
+            cleanup_col.prop(
+                scene,
+                "t4p_smooth_intersection_attempts",
+                text="Smoothing attempts",
+            )
+        else:
+            cleanup_col.label(text="Smoothing attempts: 5")
+
+        cleanup_row = cleanup_col.row(align=True)
         cleanup_row.enabled = is_object_mode and has_selection
         cleanup_row.operator(
             SMOOTH_OPERATOR_IDNAME,
-            icon="MOD_DASH",
             text="Intersections",
         )
         cleanup_row.operator(
             CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
-            icon="BRUSH_DATA",
             text="Non manifold",
         )
 
@@ -92,7 +87,6 @@ class T4P_PT_main_panel(Panel):
         button_col.enabled = is_object_mode and has_selection
         button_col.operator(
             BATCH_DECIMATE_OPERATOR_IDNAME,
-            icon="MOD_DECIM",
             text="Batch decimate",
         )
 
