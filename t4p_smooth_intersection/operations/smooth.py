@@ -245,8 +245,12 @@ def _split_elongated_intersecting_faces(
                     None,
                 )
 
-                if new_vertex is not None:
+                if new_vertex is not None and new_vertex.is_valid:
                     midpoint_vertices.append(new_vertex)
+
+            midpoint_vertices = [
+                vert for vert in midpoint_vertices if vert.is_valid
+            ]
 
             if len(midpoint_vertices) < 2:
                 continue
@@ -255,10 +259,18 @@ def _split_elongated_intersecting_faces(
             if vert_a == vert_b:
                 continue
 
-            if not (set(vert_a.link_faces) & set(vert_b.link_faces)):
+            if not vert_a.is_valid or not vert_b.is_valid:
                 continue
 
-            if any(edge for edge in vert_a.link_edges if vert_b in edge.verts):
+            shared_faces = set(vert_a.link_faces) & set(vert_b.link_faces)
+            if not shared_faces:
+                continue
+
+            if any(
+                edge
+                for edge in vert_a.link_edges
+                if edge.is_valid and vert_b in edge.verts
+            ):
                 iteration_split = True
                 continue
 
