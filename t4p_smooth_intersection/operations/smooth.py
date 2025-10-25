@@ -277,6 +277,7 @@ def _split_faces_once(
     sharp_angle_threshold: float,
 ) -> bool:
     intersection_indices = _get_intersecting_face_indices(bm)
+    print("Intersection indices", intersection_indices)
     if not intersection_indices:
         return False
     bm.edges.ensure_lookup_table()
