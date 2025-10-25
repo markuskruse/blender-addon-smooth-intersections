@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import bmesh
 import bpy
 from bpy.types import Operator
 
-from ..main import TRIANGULATE_OPERATOR_IDNAME, _triangulate_mesh
+from ..main import TRIANGULATE_OPERATOR_IDNAME, _triangulate_bmesh
 
 
 class T4P_OT_triangulate_selected(Operator):
@@ -31,9 +32,19 @@ class T4P_OT_triangulate_selected(Operator):
             if obj.type != "MESH" or obj.data is None:
                 continue
 
+            mesh = obj.data
             mesh_candidates += 1
+            changed = False
             try:
-                changed = _triangulate_mesh(obj.data)
+                bm = bmesh.new()
+                try:
+                    bm.from_mesh(mesh)
+                    if _triangulate_bmesh(bm):
+                        bm.to_mesh(mesh)
+                        mesh.update()
+                        changed = True
+                finally:
+                    bm.free()
             except RuntimeError:
                 changed = False
 
