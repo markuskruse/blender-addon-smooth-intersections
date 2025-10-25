@@ -7,7 +7,7 @@ from typing import List
 import bmesh
 import bpy
 from bpy.types import Operator
-from math import radians
+from math import radians, degrees
 
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
@@ -156,77 +156,124 @@ def _group_intersecting_bounding_boxes(
 def _split_elongated_intersecting_faces(
     mesh: bpy.types.Mesh,
     bm: bmesh.types.BMesh,
-    elongation_ratio: float = 3.0,
 ) -> bool:
-    """Split intersecting faces to reduce elongation and sharp angles."""
-
-    intersection_indices = _get_intersecting_face_indices(bm)
-    if not intersection_indices:
-        return False
-
-    bm.faces.ensure_lookup_table()
-    bm.edges.ensure_lookup_table()
+    """Split intersecting faces when they contain sharp angles."""
 
     sharp_angle_threshold = radians(30.0)
-    edges_to_split: dict[int, bmesh.types.BMEdge] = {}
-    for face_index in intersection_indices:
-        if face_index >= len(bm.faces):
-            continue
+    max_iterations = 10
+    any_split_performed = False
 
-        face = bm.faces[face_index]
-        if not face.is_valid or len(face.edges) < 3:
-            continue
+    for iteration in range(1, max_iterations + 1):
+        intersection_indices = _get_intersecting_face_indices(bm)
+        if not intersection_indices:
+            break
 
-        edge_lengths: list[tuple[float, bmesh.types.BMEdge]] = []
-        for edge in face.edges:
-            if not edge.is_valid:
-                continue
-            length = edge.calc_length()
-            if length <= 1e-6:
-                continue
-            edge_lengths.append((length, edge))
+        bm.faces.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
 
-        if len(edge_lengths) < 2:
-            continue
+        iteration_split = False
 
-        smallest_angle = float("inf")
-        for loop in face.loops:
-            prev_vector = loop.link_loop_prev.vert.co - loop.vert.co
-            next_vector = loop.link_loop_next.vert.co - loop.vert.co
-            if prev_vector.length <= 1e-6 or next_vector.length <= 1e-6:
+        for face_index in intersection_indices:
+            if face_index >= len(bm.faces):
                 continue
 
-            angle = prev_vector.angle(next_vector)
-            if angle < smallest_angle:
-                smallest_angle = angle
+            face = bm.faces[face_index]
+            if not face.is_valid or len(face.edges) < 3:
+                continue
 
-        if smallest_angle < sharp_angle_threshold:
-            _, longest_edge = max(edge_lengths, key=lambda item: item[0])
-            if longest_edge.is_valid:
-                edges_to_split[longest_edge.index] = longest_edge
-            continue
+            edge_lengths: list[tuple[float, bmesh.types.BMEdge]] = []
+            for edge in face.edges:
+                if not edge.is_valid:
+                    continue
+                length = edge.calc_length()
+                if length <= 1e-6:
+                    continue
+                edge_lengths.append((length, edge))
 
-        max_length = max(length for length, _ in edge_lengths)
-        min_length = min(length for length, _ in edge_lengths)
-        if min_length <= 0.0:
-            continue
+            if len(edge_lengths) < 2:
+                continue
 
-        if max_length > elongation_ratio * min_length:
-            # The shortest edge is opposite the shared vertex of the two longest edges.
-            _, shortest_edge = min(edge_lengths, key=lambda item: item[0])
-            if shortest_edge.is_valid:
-                edges_to_split[shortest_edge.index] = shortest_edge
+            smallest_angle = float("inf")
+            for loop in face.loops:
+                prev_vector = loop.link_loop_prev.vert.co - loop.vert.co
+                next_vector = loop.link_loop_next.vert.co - loop.vert.co
+                if prev_vector.length <= 1e-6 or next_vector.length <= 1e-6:
+                    continue
 
-    if not edges_to_split:
+                angle = prev_vector.angle(next_vector)
+                if angle < smallest_angle:
+                    smallest_angle = angle
+
+            if smallest_angle >= sharp_angle_threshold:
+                continue
+
+            longest_edges = [
+                edge
+                for _, edge in sorted(edge_lengths, key=lambda item: item[0], reverse=True)[:2]
+                if edge.is_valid
+            ]
+
+            if len(longest_edges) < 2:
+                continue
+
+            print(
+                "[T4P][smooth] Iteration "
+                f"{iteration}: sharp angle detected on face {face_index} "
+                f"({degrees(smallest_angle):.2f}\N{DEGREE SIGN}); splitting edges "
+                f"{[edge.index for edge in longest_edges]}"
+            )
+
+            midpoint_vertices: list[bmesh.types.BMVert] = []
+            for edge in longest_edges:
+                if not edge.is_valid:
+                    continue
+
+                result = bmesh.ops.subdivide_edges(
+                    bm,
+                    edges=[edge],
+                    cuts=1,
+                    use_grid_fill=False,
+                    smooth=0.0,
+                )
+
+                new_vertex = next(
+                    (
+                        geom
+                        for geom in result.get("geom_split", [])
+                        if isinstance(geom, bmesh.types.BMVert) and geom.is_valid
+                    ),
+                    None,
+                )
+
+                if new_vertex is not None:
+                    midpoint_vertices.append(new_vertex)
+
+            if len(midpoint_vertices) < 2:
+                continue
+
+            vert_a, vert_b = midpoint_vertices[:2]
+            if vert_a == vert_b:
+                continue
+
+            if not (set(vert_a.link_faces) & set(vert_b.link_faces)):
+                continue
+
+            if any(edge for edge in vert_a.link_edges if vert_b in edge.verts):
+                iteration_split = True
+                continue
+
+            bmesh.ops.connect_verts(bm, verts=[vert_a, vert_b])
+            iteration_split = True
+
+        if not iteration_split:
+            break
+
+        any_split_performed = True
+
+    if not any_split_performed:
         return False
 
-    bmesh.ops.subdivide_edges(
-        bm,
-        edges=list(edges_to_split.values()),
-        cuts=1,
-        use_grid_fill=False,
-        smooth=0.0,
-    )
+    bm.normal_update()
     bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
     return True
 
