@@ -391,13 +391,23 @@ def _try_shrink_fatten(
 
     def _attempt(distance_value: float) -> bool:
         saved_coords = {vert: vert.co.copy() for vert in relevant_vertices}
-        try:
-            bpy.ops.transform.shrink_fatten(value=distance_value, use_even_offset=True)
-        except RuntimeError:
+
+        def _restore_saved_coords() -> None:
             for vert, coord in saved_coords.items():
                 vert.co = coord
             bm.normal_update()
             bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+
+        try:
+            bpy.ops.transform.shrink_fatten(value=distance_value, use_even_offset=True)
+        except RuntimeError:
+            _restore_saved_coords()
+            return False
+
+        try:
+            bpy.ops.mesh.vertices_smooth(factor=0.5, repeat=1)
+        except RuntimeError:
+            _restore_saved_coords()
             return False
 
         bm.normal_update()
@@ -407,10 +417,7 @@ def _try_shrink_fatten(
         if not (remaining & group_face_indices):
             return True
 
-        for vert, coord in saved_coords.items():
-            vert.co = coord
-        bm.normal_update()
-        bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+        _restore_saved_coords()
         return False
 
     for scale in (0.1, 0.2):
