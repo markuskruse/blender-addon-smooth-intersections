@@ -5,6 +5,7 @@ from __future__ import annotations
 import bpy
 from bpy.types import Panel
 
+from .debug import profile_module
 from .main import (
     BATCH_DECIMATE_OPERATOR_IDNAME,
     CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
@@ -89,6 +90,9 @@ class T4P_PT_main_panel(Panel):
             BATCH_DECIMATE_OPERATOR_IDNAME,
             text="Batch decimate",
         )
+
+
+profile_module(globals())
 
 
 __all__ = ("T4P_PT_main_panel",)

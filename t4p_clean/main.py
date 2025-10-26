@@ -5,9 +5,11 @@ import os
 
 import bmesh
 import bpy
-from bpy.props import FloatProperty, IntProperty
+from bpy.props import BoolProperty, FloatProperty, IntProperty
 from bpy.types import Operator
 from mathutils.bvhtree import BVHTree
+
+from .debug import DEBUG_PREFERENCE_ATTR, profile_module
 
 try:
     import aud  # type: ignore[attr-defined]
@@ -35,6 +37,22 @@ _PLAYBACK_HANDLES: list[aud.Handle] = [] if aud is not None else []
 _ADDON_DIR = os.path.dirname(__file__)
 _HAPPY_SOUND_PATH = os.path.join(_ADDON_DIR, "chime.wav")
 _WARNING_SOUND_PATH = os.path.join(_ADDON_DIR, "warning.wav")
+
+
+class T4PAddonPreferences(bpy.types.AddonPreferences):
+    """Add-on preferences exposed in the Blender add-on settings."""
+
+    bl_idname = __package__ or __name__
+
+    enable_debug_output: BoolProperty(
+        name="Enable debug output",
+        description="Log profiling information when running add-on functions",
+        default=False,
+    )
+
+    def draw(self, context: bpy.types.Context) -> None:  # pragma: no cover - UI code
+        layout = self.layout
+        layout.prop(self, DEBUG_PREFERENCE_ATTR, text="Enable debug output")
 
 
 def _report_audio_issue(context: bpy.types.Context | None, message: str) -> None:
@@ -309,7 +327,7 @@ def _iter_classes():
         T4P_OT_triangulate_selected,
     ]
 
-    return (*operator_classes, T4P_PT_main_panel)
+    return (T4PAddonPreferences, *operator_classes, T4P_PT_main_panel)
 
 
 def register() -> None:
@@ -346,6 +364,9 @@ def unregister() -> None:
         del bpy.types.Scene.t4p_batch_decimate_ratio
 
 
+profile_module(globals())
+
+
 __all__ = (
     "register",
     "unregister",
@@ -361,4 +382,5 @@ __all__ = (
     "_select_intersecting_faces_on_mesh",
     "_triangulate_bmesh",
     "T4P_OT_batch_decimate",
+    "T4PAddonPreferences",
 )
