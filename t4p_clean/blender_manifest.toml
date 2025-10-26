@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
-id = "t4p_smooth_intersection"
-version = "0.0.1"
+id = "t4p_clean"
+version = "0.1"
 name = "T4P clean"
 tagline = "Clean bad geometry to prepare for further boolean."
 type = "add-on"
