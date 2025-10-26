@@ -40,6 +40,7 @@ class T4P_OT_filter_non_manifold(Operator):
 
         for obj in selected_objects:
             if obj.type != "MESH" or obj.data is None:
+                obj.select_set(False)
                 continue
 
             if scene is not None and scene.objects.get(obj.name) is None:
