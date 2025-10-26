@@ -10,6 +10,7 @@ from ..debug import profile_module
 from ..main import (
     CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
     _play_happy_sound,
+    _play_warning_sound,
     _triangulate_bmesh,
 )
 
@@ -178,17 +179,18 @@ def _dissolve_degenerate_and_triangulate(
     return changed or triangulated
 
 
-def _clean_object_non_manifold(obj: bpy.types.Object) -> bool:
+def _clean_object_non_manifold(obj: bpy.types.Object) -> tuple[bool, bool]:
     mesh = obj.data
     if mesh is None:
-        return False
+        return False, True
 
     try:
         bpy.ops.object.mode_set(mode="EDIT")
     except RuntimeError:
-        return False
+        return False, True
 
     changed = False
+    clean = True
 
     try:
         try:
@@ -235,13 +237,20 @@ def _clean_object_non_manifold(obj: bpy.types.Object) -> bool:
 
         if _dissolve_degenerate_and_triangulate(bm, threshold=0.01):
             changed = True
+
+        bm.normal_update()
+        bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+
+        bm = bmesh.from_edit_mesh(mesh)
+        bm.edges.ensure_lookup_table()
+        clean = not any(edge.is_valid and not edge.is_manifold for edge in bm.edges)
     finally:
         try:
             bpy.ops.object.mode_set(mode="OBJECT")
         except RuntimeError:
             pass
 
-    return changed
+    return changed, clean
 
 
 class T4P_OT_clean_non_manifold(Operator):
@@ -265,6 +274,7 @@ class T4P_OT_clean_non_manifold(Operator):
         initial_active = context.view_layer.objects.active
         scene = context.scene
         cleaned_objects: list[bpy.types.Object] = []
+        objects_with_errors: list[bpy.types.Object] = []
         mesh_candidates = 0
 
         for obj in selected_objects:
@@ -280,12 +290,16 @@ class T4P_OT_clean_non_manifold(Operator):
             obj.select_set(True)
 
             try:
-                changed = _clean_object_non_manifold(obj)
+                changed, clean = _clean_object_non_manifold(obj)
             except RuntimeError:
                 changed = False
+                clean = True
 
             if changed:
                 cleaned_objects.append(obj)
+
+            if not clean:
+                objects_with_errors.append(obj)
 
         if initial_active and (
             scene is None
@@ -311,7 +325,15 @@ class T4P_OT_clean_non_manifold(Operator):
         else:
             self.report({"INFO"}, "No changes made to selected meshes.")
 
-        _play_happy_sound(context)
+        if objects_with_errors:
+            error_names = ", ".join(obj.name for obj in objects_with_errors)
+            self.report(
+                {"WARNING"},
+                "Objects still contain non-manifold edges: {}".format(error_names),
+            )
+            _play_warning_sound(context)
+        else:
+            _play_happy_sound(context)
 
         return {"FINISHED"}
 
