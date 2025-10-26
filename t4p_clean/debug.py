@@ -100,8 +100,9 @@ def profiled(function: _FuncT) -> _FuncT:
             return function(*args, **kwargs)
         finally:
             duration_ms = (time.perf_counter() - start) * 1000.0
+            duration_ms_rounded = int(duration_ms + 0.5)
             identifier = f"{function.__module__}.{getattr(function, '__qualname__', function.__name__)}"
-            print(f"{_DEBUG_PREFIX} {identifier} took {duration_ms:.3f} ms")
+            print(f"{_DEBUG_PREFIX} {identifier} took {duration_ms_rounded} ms")
 
     setattr(wrapper, "_t4p_profile_wrapped", True)
     return cast(_FuncT, wrapper)
