@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "t4p_clean"
-version = "0.1"
+version = "0.1.0"
 name = "T4P clean"
 tagline = "Clean bad geometry to prepare for further boolean."
 type = "add-on"
