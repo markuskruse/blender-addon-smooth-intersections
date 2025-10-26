@@ -6,6 +6,7 @@ import bmesh
 import bpy
 from bpy.types import Operator
 
+from ..debug import profile_module
 from ..main import (
     FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
     _play_happy_sound,
@@ -99,6 +100,9 @@ class T4P_OT_filter_non_manifold(Operator):
             _play_warning_sound(context)
 
         return {"FINISHED"}
+
+
+profile_module(globals())
 
 
 __all__ = ("T4P_OT_filter_non_manifold",)

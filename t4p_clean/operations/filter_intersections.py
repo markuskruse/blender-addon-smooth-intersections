@@ -5,6 +5,7 @@ from __future__ import annotations
 import bpy
 from bpy.types import Operator
 
+from ..debug import profile_module
 from ..main import (
     FILTER_OPERATOR_IDNAME,
     _play_happy_sound,
@@ -78,6 +79,9 @@ class T4P_OT_filter_intersections(Operator):
             _play_warning_sound(context)
 
         return {"FINISHED"}
+
+
+profile_module(globals())
 
 
 __all__ = ("T4P_OT_filter_intersections",)

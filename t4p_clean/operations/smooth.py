@@ -12,6 +12,7 @@ from math import radians, degrees
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
+from ..debug import profile_module
 from ..main import (
     SMOOTH_OPERATOR_IDNAME,
     _get_intersecting_face_indices,
@@ -680,6 +681,9 @@ class T4P_OT_smooth_intersections(Operator):
             )
 
         return {"FINISHED"}
+
+
+profile_module(globals())
 
 
 __all__ = ("T4P_OT_smooth_intersections",)

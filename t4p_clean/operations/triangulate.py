@@ -6,6 +6,7 @@ import bmesh
 import bpy
 from bpy.types import Operator
 
+from ..debug import profile_module
 from ..main import TRIANGULATE_OPERATOR_IDNAME, _triangulate_bmesh
 
 
@@ -69,6 +70,9 @@ class T4P_OT_triangulate_selected(Operator):
             )
 
         return {"FINISHED"}
+
+
+profile_module(globals())
 
 
 __all__ = ("T4P_OT_triangulate_selected",)
