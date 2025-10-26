@@ -11,6 +11,41 @@ try:
 except Exception:  # pragma: no cover - Blender injects bpy at runtime.
     bpy = None  # type: ignore[assignment]
 
+if bpy is not None:
+    _BPY_TYPES = getattr(bpy, "types", None)
+else:  # pragma: no cover - executed when Blender is unavailable.
+    _BPY_TYPES = None
+
+_PROFILED_CLASS_EXCLUSIONS: tuple[type, ...]
+if _BPY_TYPES is None:
+    _PROFILED_CLASS_EXCLUSIONS = ()
+else:  # pragma: no cover - depends on Blender runtime types.
+    exclusions: list[type] = []
+    for attr_name in (
+        "Operator",
+        "Panel",
+        "Menu",
+        "PropertyGroup",
+        "AddonPreferences",
+    ):
+        base_type = getattr(_BPY_TYPES, attr_name, None)
+        if isinstance(base_type, type):
+            exclusions.append(base_type)
+    _PROFILED_CLASS_EXCLUSIONS = tuple(exclusions)
+
+
+def _is_excluded_class(cls: type) -> bool:
+    """Return ``True`` when ``cls`` should not have its methods wrapped."""
+
+    for base_type in _PROFILED_CLASS_EXCLUSIONS:
+        try:
+            if issubclass(cls, base_type):
+                return True
+        except TypeError:
+            continue
+
+    return False
+
 DEBUG_PREFERENCE_ATTR = "enable_debug_output"
 _DEBUG_PREFIX = "[T4P][debug]"
 _FuncT = TypeVar("_FuncT", bound=Callable[..., Any])
@@ -87,6 +122,8 @@ def profile_module(namespace: dict[str, Any]) -> None:
             continue
 
         if isinstance(value, type) and getattr(value, "__module__", None) == module_name:
+            if _is_excluded_class(value):
+                continue
             for attr_name, attr_value in list(vars(value).items()):
                 if not isinstance(attr_value, FunctionType):
                     continue
