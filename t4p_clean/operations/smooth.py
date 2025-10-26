@@ -10,9 +10,9 @@ from bpy.types import Operator
 from math import radians, degrees
 
 from mathutils import Vector
-from mathutils.bvhtree import BVHTree
 
 from ..debug import profile_module
+from .. import lib
 from ..main import (
     SMOOTH_OPERATOR_IDNAME,
     _get_intersecting_face_indices,
@@ -38,55 +38,7 @@ def _mesh_has_intersections(
 ) -> bool:
     """Return ``True`` when the provided mesh contains self-intersections."""
 
-    def _bmesh_contains_self_intersections(
-        eval_bm: bmesh.types.BMesh,
-    ) -> bool:
-        if not eval_bm.faces:
-            return False
-
-        faces = list(eval_bm.faces)
-        if not faces:
-            return False
-
-        bmesh.ops.triangulate(eval_bm, faces=faces)
-        eval_bm.faces.ensure_lookup_table()
-
-        tree = BVHTree.FromBMesh(eval_bm)
-        if tree is None:
-            return False
-
-        for index_a, index_b in tree.overlap(tree):
-            if index_a == index_b or index_b < index_a:
-                continue
-
-            face_a = eval_bm.faces[index_a]
-            face_b = eval_bm.faces[index_b]
-
-            verts_a = {vert.index for vert in face_a.verts}
-            verts_b = {vert.index for vert in face_b.verts}
-
-            if verts_a & verts_b:
-                continue
-
-            return True
-
-        return False
-
-    if bm is not None:
-        bm_copy = bm.copy()
-        try:
-            return _bmesh_contains_self_intersections(bm_copy)
-        finally:
-            bm_copy.free()
-
-    new_bm = bmesh.new()
-    try:
-        new_bm.from_mesh(mesh)
-        return _bmesh_contains_self_intersections(new_bm)
-    finally:
-        new_bm.free()
-
-    return False
+    return lib.mesh_has_self_intersections(mesh, bm)
 
 
 def _calculate_faces_bounding_box(
@@ -698,9 +650,19 @@ class T4P_OT_smooth_intersections(Operator):
                 continue
             if scene_for_check is not None and scene_for_check.objects.get(obj.name) is None:
                 continue
-            if _mesh_has_intersections(obj.data):
-                remaining_intersections = True
-                break
+
+            bm_for_check = None
+            try:
+                bm_for_check = bmesh.new()
+                bm_for_check.from_mesh(obj.data)
+                if lib.bmesh_check_self_intersect_object(bm_for_check):
+                    remaining_intersections = True
+                    break
+            except RuntimeError:
+                continue
+            finally:
+                if bm_for_check is not None:
+                    bm_for_check.free()
 
         if remaining_intersections:
             _play_warning_sound(context)
