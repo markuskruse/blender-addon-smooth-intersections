@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Iterator, List
+from typing import List
 
 import bmesh
 import bpy
@@ -280,17 +280,20 @@ def _process_intersecting_face(
     return _connect_midpoints_if_possible(bm, midpoint_vertices)
 
 
-def _iter_faces_with_neighbors(
+def _collect_face_indices_with_neighbors(
     bm: bmesh.types.BMesh, intersection_indices: list[int]
-) -> Iterator[tuple[int, bmesh.types.BMFace]]:
+) -> list[int]:
     bm.faces.ensure_lookup_table()
+    faces_to_visit: list[int] = []
     seen: set[int] = set()
+
     for face_index, face in _iter_valid_intersecting_faces(bm, intersection_indices):
         if face_index in seen:
             continue
         seen.add(face_index)
-        yield face_index, face
-        for edge in face.edges:
+        faces_to_visit.append(face_index)
+
+        for edge in list(face.edges):
             if not edge.is_valid:
                 continue
             for neighbor in edge.link_faces:
@@ -300,7 +303,9 @@ def _iter_faces_with_neighbors(
                 if neighbor_index in seen:
                     continue
                 seen.add(neighbor_index)
-                yield neighbor_index, neighbor
+                faces_to_visit.append(neighbor_index)
+
+    return faces_to_visit
 
 
 def _split_faces_once(
@@ -313,10 +318,15 @@ def _split_faces_once(
     if not intersection_indices:
         return False
     bm.edges.ensure_lookup_table()
+    face_indices = _collect_face_indices_with_neighbors(
+        bm, list(intersection_indices)
+    )
     iteration_split = False
-    for face_index, face in _iter_faces_with_neighbors(bm, intersection_indices):
+    for face_index in face_indices:
+        bm.faces.ensure_lookup_table()
         if face_index >= len(bm.faces):
             continue
+        face = bm.faces[face_index]
         if not face.is_valid or len(face.edges) < 3:
             continue
         if _process_intersecting_face(bm, face_index, face, iteration, sharp_angle_threshold):
