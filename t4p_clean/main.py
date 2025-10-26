@@ -163,6 +163,23 @@ def _play_warning_sound(context: bpy.types.Context | None = None) -> None:
     _play_sound(context, _WARNING_SOUND_PATH)
 
 
+def _disable_profiling_for_audio() -> None:
+    """Prevent profiling decorators from wrapping audio helper functions."""
+
+    for function in (
+        _report_audio_issue,
+        _get_audio_device,
+        _cleanup_finished_playback,
+        _play_sound,
+        _play_happy_sound,
+        _play_warning_sound,
+    ):
+        setattr(function, "_t4p_profile_wrapped", True)
+
+
+_disable_profiling_for_audio()
+
+
 def _get_intersecting_face_indices(bm: bmesh.types.BMesh) -> set[int]:
     if not bm.faces:
         return set()
