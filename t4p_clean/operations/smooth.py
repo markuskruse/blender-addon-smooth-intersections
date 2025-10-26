@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List
+from typing import Iterator, List
 
 import bmesh
 import bpy
@@ -274,6 +274,29 @@ def _process_intersecting_face(
     return _connect_midpoints_if_possible(bm, midpoint_vertices)
 
 
+def _iter_faces_with_neighbors(
+    bm: bmesh.types.BMesh, intersection_indices: list[int]
+) -> Iterator[tuple[int, bmesh.types.BMFace]]:
+    bm.faces.ensure_lookup_table()
+    seen: set[int] = set()
+    for face_index, face in _iter_valid_intersecting_faces(bm, intersection_indices):
+        if face_index in seen:
+            continue
+        seen.add(face_index)
+        yield face_index, face
+        for edge in face.edges:
+            if not edge.is_valid:
+                continue
+            for neighbor in edge.link_faces:
+                if not neighbor.is_valid or len(neighbor.edges) < 3:
+                    continue
+                neighbor_index = neighbor.index
+                if neighbor_index in seen:
+                    continue
+                seen.add(neighbor_index)
+                yield neighbor_index, neighbor
+
+
 def _split_faces_once(
     bm: bmesh.types.BMesh,
     iteration: int,
@@ -285,11 +308,9 @@ def _split_faces_once(
         return False
     bm.edges.ensure_lookup_table()
     iteration_split = False
-    for face_index, _ in _iter_valid_intersecting_faces(bm, intersection_indices):
-        bm.faces.ensure_lookup_table()
+    for face_index, face in _iter_faces_with_neighbors(bm, intersection_indices):
         if face_index >= len(bm.faces):
             continue
-        face = bm.faces[face_index]
         if not face.is_valid or len(face.edges) < 3:
             continue
         if _process_intersecting_face(bm, face_index, face, iteration, sharp_angle_threshold):
@@ -303,7 +324,7 @@ def _split_elongated_intersecting_faces(
 ) -> bool:
     """Split intersecting faces when they contain sharp angles."""
 
-    sharp_angle_threshold = radians(30.0)
+    sharp_angle_threshold = radians(15.0)
     max_iterations = 10
     any_split_performed = False
 
