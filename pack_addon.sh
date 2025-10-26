@@ -8,7 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
-ADDON_DIR="t4p_smooth_intersection"
+ADDON_DIR="t4p_clean"
 if [[ ! -d "${ADDON_DIR}" ]]; then
   echo "Error: ${ADDON_DIR} directory not found in ${SCRIPT_DIR}" >&2
   exit 1
