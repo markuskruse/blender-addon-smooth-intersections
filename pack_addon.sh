@@ -38,7 +38,20 @@ fi
 rm -f "${OUTPUT_PATH}"
 
 # Create the archive without Python cache files or other temporary artefacts.
-zip -r -q "${OUTPUT_PATH}" "${ADDON_DIR}" \
-  -x "*/__pycache__/*" "*.pyc" "*.pyo"
+if command -v zip >/dev/null 2>&1; then
+  zip -r -q "${OUTPUT_PATH}" "${ADDON_DIR}" \
+    -x "*/__pycache__/*" "*.pyc" "*.pyo"
+else
+  if ! command -v git >/dev/null 2>&1; then
+    echo "Error: neither zip nor git command is available to create the archive." >&2
+    exit 1
+  fi
+
+  echo "zip command not found; falling back to git archive."
+  git -C "${SCRIPT_DIR}" archive \
+    --format=zip \
+    --output="${OUTPUT_PATH}" \
+    HEAD "${ADDON_DIR}"
+fi
 
 echo "Created ${OUTPUT_PATH}"
