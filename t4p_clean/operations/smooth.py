@@ -244,9 +244,15 @@ def _connect_midpoints_if_possible(
         edge for edge in vert_a.link_edges if edge.is_valid and vert_b in edge.verts
     )
     if has_existing_edge:
-        return True
-    bmesh.ops.connect_verts(bm, verts=[vert_a, vert_b])
-    return True
+        return False
+
+    result = bmesh.ops.connect_verts(bm, verts=[vert_a, vert_b])
+    new_edges = [
+        edge
+        for edge in result.get("edges", [])
+        if isinstance(edge, bmesh.types.BMEdge) and edge.is_valid
+    ]
+    return bool(new_edges)
 
 
 def _process_intersecting_face(
