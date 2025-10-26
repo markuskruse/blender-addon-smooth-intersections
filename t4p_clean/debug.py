@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from functools import wraps
 from types import FunctionType
 from typing import Any, Callable, TypeVar, cast
@@ -51,6 +52,43 @@ _DEBUG_PREFIX = "[T4P][debug]"
 _FuncT = TypeVar("_FuncT", bound=Callable[..., Any])
 
 
+@dataclass
+class _CallContext:
+    """State captured for a profiled function invocation."""
+
+    start_time: float
+    operation_start: float
+
+
+_CALL_STACK: list[_CallContext] = []
+
+
+def _round_ms(duration: float) -> int:
+    """Return ``duration`` converted to milliseconds with rounding."""
+
+    return int(duration * 1000.0 + 0.5)
+
+
+def _log_trace(
+    event: str,
+    identifier: str,
+    depth: int,
+    operation_total_ms: int,
+    *,
+    duration_ms: int | None,
+) -> None:
+    """Emit a formatted trace log for the profiled function."""
+
+    indent = "  " * depth
+    message = (
+        f"{_DEBUG_PREFIX} {indent}{event} {identifier}"
+        f" | depth={depth} | op_total={operation_total_ms} ms"
+    )
+    if duration_ms is not None:
+        message = f"{message} | duration={duration_ms} ms"
+    print(message)
+
+
 def _get_addon_preferences() -> Any:
     """Return the add-on preferences instance when available."""
 
@@ -95,14 +133,40 @@ def profiled(function: _FuncT) -> _FuncT:
         if not is_debug_output_enabled():
             return function(*args, **kwargs)
 
-        start = time.perf_counter()
+        now = time.perf_counter()
+        if _CALL_STACK:
+            operation_start = _CALL_STACK[-1].operation_start
+            depth = len(_CALL_STACK)
+        else:
+            operation_start = now
+            depth = 0
+
+        context = _CallContext(start_time=now, operation_start=operation_start)
+        _CALL_STACK.append(context)
+
+        identifier = f"{function.__module__}.{getattr(function, '__qualname__', function.__name__)}"
+        _log_trace(
+            "ENTER",
+            identifier,
+            depth,
+            _round_ms(now - operation_start),
+            duration_ms=None,
+        )
+
         try:
             return function(*args, **kwargs)
         finally:
-            duration_ms = (time.perf_counter() - start) * 1000.0
-            duration_ms_rounded = int(duration_ms + 0.5)
-            identifier = f"{function.__module__}.{getattr(function, '__qualname__', function.__name__)}"
-            print(f"{_DEBUG_PREFIX} {identifier} took {duration_ms_rounded} ms")
+            end_time = time.perf_counter()
+            _CALL_STACK.pop()
+            duration_ms = _round_ms(end_time - context.start_time)
+            operation_total_ms = _round_ms(end_time - context.operation_start)
+            _log_trace(
+                "EXIT",
+                identifier,
+                depth,
+                operation_total_ms,
+                duration_ms=duration_ms,
+            )
 
     setattr(wrapper, "_t4p_profile_wrapped", True)
     return cast(_FuncT, wrapper)
