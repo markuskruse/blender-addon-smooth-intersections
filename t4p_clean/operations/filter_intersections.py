@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import array
+
+import bmesh
 import bpy
 from bpy.types import Operator
 
+from .. import lib
 from ..debug import profile_module
 from ..main import (
     FILTER_OPERATOR_IDNAME,
     _play_happy_sound,
     _play_warning_sound,
-    _select_intersecting_faces_on_mesh,
 )
 
 
@@ -39,15 +42,34 @@ class T4P_OT_filter_intersections(Operator):
         mesh_candidates = 0
 
         for obj in selected_objects:
-            has_intersections = False
+            face_indices = array.array("i", ())
             if obj.type == "MESH" and obj.data is not None:
                 mesh_candidates += 1
+                bm = None
                 try:
-                    face_count = _select_intersecting_faces_on_mesh(obj.data)
+                    bm = bmesh.new()
+                    bm.from_mesh(obj.data)
+                    face_indices = lib.bmesh_check_self_intersect_object(bm)
                 except RuntimeError:
-                    face_count = 0
-                has_intersections = face_count > 0
+                    face_indices = array.array("i", ())
+                finally:
+                    if bm is not None:
+                        bm.free()
 
+                if face_indices:
+                    try:
+                        polygons = obj.data.polygons
+                        if polygons:
+                            selection = [False] * len(polygons)
+                            for index in face_indices:
+                                if 0 <= index < len(selection):
+                                    selection[index] = True
+                            polygons.foreach_set("select", selection)
+                            obj.data.update()
+                    except RuntimeError:
+                        face_indices = array.array("i", ())
+
+            has_intersections = bool(face_indices)
             obj.select_set(has_intersections)
 
             if has_intersections:
