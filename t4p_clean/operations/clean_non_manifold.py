@@ -23,6 +23,7 @@ def _clean_object_non_manifold(
     if mesh is None:
         return False, True
 
+    checksum_before = mesh_checksum_fast(obj)
     # TODO should be changeable afterwards
 
     bpy.ops.object.mode_set(mode="EDIT")
@@ -52,14 +53,24 @@ def _clean_object_non_manifold(
     bm = _get_bmesh(mesh)
     num_errors_after = count_non_manifold_verts(bm)
     clean = num_errors_after == 0
-    worse = num_errors_before < num_errors_after
-    changed = num_errors_before != num_errors_after
+    worse = num_errors_after > num_errors_before
 
     bpy.ops.object.mode_set(mode="OBJECT")
+
+    checksum_after = mesh_checksum_fast(obj)
+    changed = checksum_after != checksum_before
 
     print("Stats: before", num_errors_before, "after", num_errors_after, "clean", clean, "changed", changed, "worse", worse)
 
     return changed, clean, worse
+
+
+def mesh_checksum_fast(obj):
+    m = obj.data
+    return hash((
+        tuple(round(c, 6) for v in m.vertices for c in v.co),
+        tuple(tuple(p.vertices) for p in m.polygons)
+    ))
 
 
 def _get_bmesh(mesh):
