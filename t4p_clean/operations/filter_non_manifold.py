@@ -11,6 +11,7 @@ from ..main import (
     FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
     _play_happy_sound,
     _play_warning_sound,
+    count_non_manifold_verts
 )
 
 
@@ -51,20 +52,13 @@ class T4P_OT_filter_non_manifold(Operator):
             context.view_layer.objects.active = obj
             obj.select_set(True)
 
-            has_non_manifold = False
-            try:
-                bpy.ops.object.mode_set(mode="EDIT")
-                bm = bmesh.from_edit_mesh(obj.data)
-                bm.edges.ensure_lookup_table()
-                has_non_manifold = any(not edge.is_manifold for edge in bm.edges)
-            except RuntimeError:
-                has_non_manifold = False
-            finally:
-                try:
-                    bpy.ops.object.mode_set(mode="OBJECT")
-                except RuntimeError:
-                    pass
+            bpy.ops.object.mode_set(mode="EDIT")
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.edges.ensure_lookup_table()
+            bm.verts.ensure_lookup_table()
+            has_non_manifold = count_non_manifold_verts() > 0
 
+            bpy.ops.object.mode_set(mode="OBJECT")
             obj.select_set(False)
             if has_non_manifold:
                 non_manifold_list.append(obj)
@@ -88,16 +82,11 @@ class T4P_OT_filter_non_manifold(Operator):
 
         if mesh_candidates == 0:
             self.report({"INFO"}, "No mesh objects selected.")
-        elif not non_manifold_list:
+        elif len(non_manifold_list) == 0:
             self.report({"INFO"}, "All checked mesh objects are manifold.")
             _play_happy_sound(context)
         else:
-            self.report(
-                {"INFO"},
-                "Deselected non-manifold meshes: {}".format(
-                    ", ".join(obj.name for obj in non_manifold_list)
-                ),
-            )
+            self.report({"WARNING"}, "Deselected non-manifold meshes, {} remain.", len(non_manifold_list))
             _play_warning_sound(context)
 
         return {"FINISHED"}

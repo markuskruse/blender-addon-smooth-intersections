@@ -11,7 +11,7 @@ from ..main import (
     CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
     _play_happy_sound,
     _play_warning_sound,
-    _triangulate_bmesh,
+    _triangulate_bmesh, select_non_manifold_verts, count_non_manifold_verts,
 )
 
 
@@ -32,7 +32,7 @@ def _clean_object_non_manifold(
 
     bm = _get_bmesh(mesh)
     _triangulate_bmesh(bm)
-    num_errors_before = _count_non_manifold_verts(bm)
+    num_errors_before = count_non_manifold_verts(bm)
     bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=True)
 
     bpy.ops.mesh.delete_loose()
@@ -50,7 +50,7 @@ def _clean_object_non_manifold(
     _unify_normals()
 
     bm = _get_bmesh(mesh)
-    num_errors_after = _count_non_manifold_verts(bm)
+    num_errors_after = count_non_manifold_verts(bm)
     clean = num_errors_after == 0
     worse = num_errors_before < num_errors_after
     changed = num_errors_before != num_errors_after
@@ -84,7 +84,7 @@ def _remove_doubles(merge_distance):
 
 def _make_manifold(mesh):
     bm = _get_bmesh(mesh)
-    fix_non_manifold = _count_non_manifold_verts(bm) > 0
+    fix_non_manifold = count_non_manifold_verts(bm) > 0
     num_faces = len(bm.faces)
     while fix_non_manifold:
         _try_fix_manifold()
@@ -99,32 +99,8 @@ def _make_manifold(mesh):
 def _try_fix_manifold():
     bpy.ops.mesh.select_all(action="SELECT")
     bpy.ops.mesh.fill_holes(sides=0)
-    _select_non_manifold_verts(use_wire=True, use_verts=True)
+    select_non_manifold_verts(use_wire=True, use_verts=True)
     bpy.ops.mesh.delete(type="VERT")
-
-
-def _count_non_manifold_verts(bm):
-    """return a set of coordinates of non-manifold vertices"""
-    _select_non_manifold_verts(use_wire=True, use_boundary=True, use_verts=True)
-    return sum((1 for v in bm.verts if v.select))
-
-
-def _select_non_manifold_verts(
-        use_wire=False,
-        use_boundary=False,
-        use_multi_face=False,
-        use_non_contiguous=False,
-        use_verts=False,
-):
-    """select non-manifold vertices"""
-    bpy.ops.mesh.select_non_manifold(
-        extend=False,
-        use_wire=use_wire,
-        use_boundary=use_boundary,
-        use_multi_face=use_multi_face,
-        use_non_contiguous=use_non_contiguous,
-        use_verts=use_verts,
-    )
 
 
 def _fill_holes():

@@ -251,6 +251,31 @@ def _triangulate_bmesh(bm: bmesh.types.BMesh) -> None:
     bmesh.ops.triangulate(bm, faces=faces)
 
 
+def select_non_manifold_verts(
+        use_wire=False,
+        use_boundary=False,
+        use_multi_face=False,
+        use_non_contiguous=False,
+        use_verts=False,
+):
+    """select non-manifold vertices"""
+    bpy.ops.mesh.select_non_manifold(
+        extend=False,
+        use_wire=use_wire,
+        use_boundary=use_boundary,
+        use_multi_face=use_multi_face,
+        use_non_contiguous=use_non_contiguous,
+        use_verts=use_verts,
+    )
+
+
+def count_non_manifold_verts(bm):
+    """return a set of coordinates of non-manifold vertices"""
+    select_non_manifold_verts(use_wire=True, use_boundary=True, use_verts=True, use_multi_face=True)
+    return sum((1 for v in bm.verts if v.select))
+
+
+
 class T4P_OT_batch_decimate(Operator):
     """Apply a decimate modifier to all selected mesh objects."""
 
