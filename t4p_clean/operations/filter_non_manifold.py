@@ -56,7 +56,7 @@ class T4P_OT_filter_non_manifold(Operator):
             bm = bmesh.from_edit_mesh(obj.data)
             bm.edges.ensure_lookup_table()
             bm.verts.ensure_lookup_table()
-            has_non_manifold = count_non_manifold_verts() > 0
+            has_non_manifold = count_non_manifold_verts(bm) > 0
 
             bpy.ops.object.mode_set(mode="OBJECT")
             obj.select_set(False)
