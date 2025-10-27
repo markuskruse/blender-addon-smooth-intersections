@@ -11,7 +11,7 @@ from ..main import (
     CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
     _play_happy_sound,
     _play_warning_sound,
-    _triangulate_bmesh, select_non_manifold_verts, count_non_manifold_verts,
+    _triangulate_bmesh, select_non_manifold_verts, count_non_manifold_verts, _get_bmesh,
 )
 
 
@@ -71,15 +71,6 @@ def mesh_checksum_fast(obj):
         tuple(round(c, 6) for v in m.vertices for c in v.co),
         tuple(tuple(p.vertices) for p in m.polygons)
     ))
-
-
-def _get_bmesh(mesh):
-    """get an updated bmesh from mesh and make all indexes"""
-    bm = bmesh.from_edit_mesh(mesh)
-    bm.edges.ensure_lookup_table()
-    bm.faces.ensure_lookup_table()
-    bm.verts.ensure_lookup_table()
-    return bm
 
 
 def _unify_normals():

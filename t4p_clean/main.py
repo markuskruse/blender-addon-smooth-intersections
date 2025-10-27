@@ -1,7 +1,9 @@
 """Core utilities and registration for the T4P clean add-on."""
 from __future__ import annotations
 
+import array
 import os
+from typing import MutableSequence
 
 import bmesh
 import bpy
@@ -275,6 +277,55 @@ def count_non_manifold_verts(bm):
     return sum((1 for v in bm.verts if v.select))
 
 
+def _get_bmesh(mesh):
+    """get an updated bmesh from mesh and make all indexes"""
+    bm = bmesh.from_edit_mesh(mesh)
+    bm.edges.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+    bm.verts.ensure_lookup_table()
+    return bm
+
+
+def bmesh_check_self_intersect_object(
+    bm: bmesh.types.BMesh | None,
+) -> MutableSequence[int]:
+    """Return the indices of faces that overlap within ``bm``."""
+
+    if bm is None or len(bm.faces) == 0:
+        return array.array("i", ())
+
+    bm_copy = bm.copy()
+    try:
+        bm_copy.faces.ensure_lookup_table()
+        tree = BVHTree.FromBMesh(bm_copy, epsilon=0.00001)
+        if tree is None:
+            return array.array("i", ())
+
+        overlap = tree.overlap(tree)
+        if not overlap:
+            return array.array("i", ())
+
+        faces_error = {index for pair in overlap for index in pair}
+        return array.array("i", faces_error)
+    finally:
+        bm_copy.free()
+
+
+def mesh_has_self_intersections(
+    mesh: bpy.types.Mesh, bm: bmesh.types.BMesh | None = None
+) -> bool:
+    """Return ``True`` when the provided mesh contains self-intersections."""
+
+    if bm is not None:
+        return bool(bmesh_check_self_intersect_object(bm))
+
+    new_bm = bmesh.new()
+    try:
+        new_bm.from_mesh(mesh)
+        return bool(bmesh_check_self_intersect_object(new_bm))
+    finally:
+        new_bm.free()
+
 
 class T4P_OT_batch_decimate(Operator):
     """Apply a decimate modifier to all selected mesh objects."""
@@ -351,7 +402,7 @@ def _iter_classes():
     from .operations.clean_non_manifold import T4P_OT_clean_non_manifold
     from .operations.filter_intersections import T4P_OT_filter_intersections
     from .operations.filter_non_manifold import T4P_OT_filter_non_manifold
-    from .operations.smooth import T4P_OT_smooth_intersections
+    from .operations.clean_intersections import T4P_OT_smooth_intersections
     from .operations.triangulate import T4P_OT_triangulate_selected
     from .gui import T4P_PT_main_panel
 

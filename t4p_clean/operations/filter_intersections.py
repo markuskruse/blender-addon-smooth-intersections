@@ -8,12 +8,13 @@ import bmesh
 import bpy
 from bpy.types import Operator
 
-from .. import lib
+import t4p_clean.main
 from ..debug import profile_module
 from ..main import (
     FILTER_OPERATOR_IDNAME,
     _play_happy_sound,
     _play_warning_sound,
+    _get_bmesh
 )
 
 
@@ -45,29 +46,20 @@ class T4P_OT_filter_intersections(Operator):
             face_indices = array.array("i", ())
             if obj.type == "MESH" and obj.data is not None:
                 mesh_candidates += 1
-                bm = None
-                try:
-                    bm = bmesh.new()
-                    bm.from_mesh(obj.data)
-                    face_indices = lib.bmesh_check_self_intersect_object(bm)
-                except RuntimeError:
-                    face_indices = array.array("i", ())
-                finally:
-                    if bm is not None:
-                        bm.free()
+                mesh = obj.data
+                bm = _get_bmesh(mesh)
+
+                face_indices = t4p_clean.main.bmesh_check_self_intersect_object(bm)
 
                 if face_indices:
-                    try:
-                        polygons = obj.data.polygons
-                        if polygons:
-                            selection = [False] * len(polygons)
-                            for index in face_indices:
-                                if 0 <= index < len(selection):
-                                    selection[index] = True
-                            polygons.foreach_set("select", selection)
-                            obj.data.update()
-                    except RuntimeError:
-                        face_indices = array.array("i", ())
+                    polygons = obj.data.polygons
+                    if polygons:
+                        selection = [False] * len(polygons)
+                        for index in face_indices:
+                            if 0 <= index < len(selection):
+                                selection[index] = True
+                        polygons.foreach_set("select", selection)
+                        obj.data.update()
 
             has_intersections = bool(face_indices)
             obj.select_set(has_intersections)
@@ -85,19 +77,12 @@ class T4P_OT_filter_intersections(Operator):
 
         if not objects_with_intersections:
             if mesh_candidates == 0:
-                self.report({"INFO"}, "No mesh objects selected.")
+                self.report({"WARNING"}, "No mesh objects selected.")
             else:
-                self.report(
-                    {"INFO"}, "No self-intersections detected on selected objects."
-                )
+                self.report({"INFO"}, "No self-intersections detected on selected objects.")
                 _play_happy_sound(context)
         else:
-            self.report(
-                {"INFO"},
-                "Objects with self-intersections: {}".format(
-                    ", ".join(obj.name for obj in objects_with_intersections)
-                ),
-            )
+            self.report({"INFO"}, "{} objects of {} with self-intersections.".format(len()))
             _play_warning_sound(context)
 
         return {"FINISHED"}

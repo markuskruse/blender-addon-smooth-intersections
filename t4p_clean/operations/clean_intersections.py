@@ -11,8 +11,8 @@ from math import radians, degrees
 
 from mathutils import Vector
 
+import t4p_clean.main
 from ..debug import profile_module
-from .. import lib
 from ..main import (
     SMOOTH_OPERATOR_IDNAME,
     _get_intersecting_face_indices,
@@ -38,7 +38,7 @@ def _mesh_has_intersections(
 ) -> bool:
     """Return ``True`` when the provided mesh contains self-intersections."""
 
-    return lib.mesh_has_self_intersections(mesh, bm)
+    return t4p_clean.main.mesh_has_self_intersections(mesh, bm)
 
 
 def _calculate_faces_bounding_box(
@@ -655,7 +655,7 @@ class T4P_OT_smooth_intersections(Operator):
             try:
                 bm_for_check = bmesh.new()
                 bm_for_check.from_mesh(obj.data)
-                if lib.bmesh_check_self_intersect_object(bm_for_check):
+                if t4p_clean.main.bmesh_check_self_intersect_object(bm_for_check):
                     remaining_intersections = True
                     break
             except RuntimeError:
