@@ -246,14 +246,9 @@ def _select_intersecting_faces_on_mesh(mesh: bpy.types.Mesh) -> int:
     return len(intersection_indices)
 
 
-def _triangulate_bmesh(bm: bmesh.types.BMesh) -> bool:
-    bm.faces.ensure_lookup_table()
-    faces = [face for face in bm.faces if face.is_valid]
-    if not faces:
-        return False
-
+def _triangulate_bmesh(bm: bmesh.types.BMesh) -> None:
+    faces = [face for face in bm.faces]
     bmesh.ops.triangulate(bm, faces=faces)
-    return True
 
 
 class T4P_OT_batch_decimate(Operator):

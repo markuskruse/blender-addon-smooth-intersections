@@ -15,8 +15,125 @@ from ..main import (
 )
 
 
+def _clean_object_non_manifold(
+        obj: bpy.types.Object,
+        merge_distance,
+        delete_island_threshold) -> tuple[bool, bool, bool]:
+    mesh = obj.data
+    if mesh is None:
+        return False, True
+
+    # TODO should be changeable afterwards
+
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_mode(type="VERT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.reveal()
+
+    bm = _get_bmesh(mesh)
+    _triangulate_bmesh(bm)
+    num_errors_before = _count_non_manifold_verts(bm)
+    bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=True)
+
+    bpy.ops.mesh.delete_loose()
+    _delete_interior_faces()
+    _fill_holes()
+
+    bm = _get_bmesh(mesh)
+    _delete_small_vertex_islands(bm, min_vertices=delete_island_threshold)
+    _dissolve_degenerate_and_triangulate(bm, threshold=merge_distance)
+    bm.normal_update()
+    bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=True)
+
+    _remove_doubles(merge_distance)
+    _make_manifold(mesh)
+    _unify_normals()
+
+    bm = _get_bmesh(mesh)
+    num_errors_after = _count_non_manifold_verts(bm)
+    clean = num_errors_after == 0
+    worse = num_errors_before < num_errors_after
+    changed = num_errors_before != num_errors_after
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    print("Stats: before", num_errors_before, "after", num_errors_after, "clean", clean, "changed", changed, "worse", worse)
+
+    return changed, clean, worse
+
+
+def _get_bmesh(mesh):
+    """get an updated bmesh from mesh and make all indexes"""
+    bm = bmesh.from_edit_mesh(mesh)
+    bm.edges.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+    bm.verts.ensure_lookup_table()
+    return bm
+
+
+def _unify_normals():
+    """have all normals face outwards"""
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.normals_make_consistent()
+
+
+def _remove_doubles(merge_distance):
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.remove_doubles(threshold=merge_distance)
+
+
+def _make_manifold(mesh):
+    bm = _get_bmesh(mesh)
+    fix_non_manifold = _count_non_manifold_verts(bm) > 0
+    num_faces = len(bm.faces)
+    while fix_non_manifold:
+        _try_fix_manifold()
+        bm = _get_bmesh(mesh)
+        new_num_faces = len(bm.faces)
+        if new_num_faces == num_faces:
+            fix_non_manifold = False
+        else:
+            num_faces = new_num_faces
+
+
+def _try_fix_manifold():
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.fill_holes(sides=0)
+    _select_non_manifold_verts(use_wire=True, use_verts=True)
+    bpy.ops.mesh.delete(type="VERT")
+
+
+def _count_non_manifold_verts(bm):
+    """return a set of coordinates of non-manifold vertices"""
+    _select_non_manifold_verts(use_wire=True, use_boundary=True, use_verts=True)
+    return sum((1 for v in bm.verts if v.select))
+
+
+def _select_non_manifold_verts(
+        use_wire=False,
+        use_boundary=False,
+        use_multi_face=False,
+        use_non_contiguous=False,
+        use_verts=False,
+):
+    """select non-manifold vertices"""
+    bpy.ops.mesh.select_non_manifold(
+        extend=False,
+        use_wire=use_wire,
+        use_boundary=use_boundary,
+        use_multi_face=use_multi_face,
+        use_non_contiguous=use_non_contiguous,
+        use_verts=use_verts,
+    )
+
+
+def _fill_holes():
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.fill_holes(sides=0)
+
+
 def _get_mesh_vertex_islands(
-    bm: bmesh.types.BMesh,
+        bm: bmesh.types.BMesh,
 ) -> list[list[bmesh.types.BMVert]]:
     bm.verts.ensure_lookup_table()
     visited: set[int] = set()
@@ -56,11 +173,11 @@ def _get_mesh_vertex_islands(
 
 
 def _delete_small_vertex_islands(
-    bm: bmesh.types.BMesh, min_vertices: int
-) -> bool:
+        bm: bmesh.types.BMesh, min_vertices: int
+) -> None:
     islands = _get_mesh_vertex_islands(bm)
     if not islands:
-        return False
+        return
 
     max_size = max(len(island) for island in islands)
     verts_to_delete: set[bmesh.types.BMVert] = set()
@@ -75,88 +192,38 @@ def _delete_small_vertex_islands(
     return True
 
 
-def delete_interior_faces() -> bool:
+def _fill_non_manifold(sides: int):
+    """fill in any remnant non-manifolds"""
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.fill_holes(sides=sides)
+
+
+def _delete_interior_faces() -> None:
     """Delete interior faces in edit mode.
-
-    Returns ``True`` if any interior faces were removed.
     """
-
-    edit_object = bpy.context.edit_object
-    mesh = None
-    if edit_object is not None and edit_object.type == "MESH":
-        mesh = edit_object.data
-
-    try:
-        bpy.ops.mesh.select_all(action="DESELECT")
-    except RuntimeError:
-        return False
-
-    try:
-        bpy.ops.mesh.select_interior_faces()
-    except RuntimeError:
-        try:
-            bpy.ops.mesh.select_all(action="SELECT")
-        except RuntimeError:
-            pass
-        return False
-
-    selected_faces: int | None = None
-    if mesh is not None:
-        bm = bmesh.from_edit_mesh(mesh)
-        bm.faces.ensure_lookup_table()
-        selected_faces = sum(
-            1 for face in bm.faces if face.is_valid and face.select
-        )
-
-        if selected_faces == 0:
-            try:
-                bpy.ops.mesh.select_all(action="SELECT")
-            except RuntimeError:
-                pass
-            return False
-
-    try:
-        delete_result = bpy.ops.mesh.delete(type="FACE")
-    except RuntimeError:
-        try:
-            bpy.ops.mesh.select_all(action="SELECT")
-        except RuntimeError:
-            pass
-        return False
-
-    try:
-        bpy.ops.mesh.select_all(action="SELECT")
-    except RuntimeError:
-        pass
-
-    if "FINISHED" not in delete_result:
-        return False
-
-    if selected_faces is not None:
-        return selected_faces > 0
-
-    return True
+    bpy.ops.mesh.select_all(action="DESELECT")
+    bpy.ops.mesh.select_interior_faces()
+    bpy.ops.mesh.delete(type="FACE")
 
 
-def _fill_and_triangulate_holes(bm: bmesh.types.BMesh) -> bool:
+def _fill_and_triangulate_holes(bm: bmesh.types.BMesh) -> None:
     bm.edges.ensure_lookup_table()
     boundary_edges = [edge for edge in bm.edges if edge.is_valid and edge.is_boundary]
     if not boundary_edges:
-        return False
+        return
 
     result = bmesh.ops.holes_fill(bm, edges=boundary_edges, sides=0)
     new_faces = [face for face in result.get("faces", []) if face.is_valid]
     if not new_faces:
-        return False
+        return
 
     bmesh.ops.triangulate(bm, faces=new_faces)
-    return True
+    return
 
 
 def _dissolve_degenerate_and_triangulate(
-    bm: bmesh.types.BMesh, threshold: float
+        bm: bmesh.types.BMesh, threshold: float
 ) -> bool:
-    bm.edges.ensure_lookup_table()
     edges = [edge for edge in bm.edges if edge.is_valid]
     if not edges:
         return False
@@ -179,78 +246,39 @@ def _dissolve_degenerate_and_triangulate(
     return changed or triangulated
 
 
-def _clean_object_non_manifold(obj: bpy.types.Object) -> tuple[bool, bool]:
-    mesh = obj.data
-    if mesh is None:
-        return False, True
+def get_bmesh_islands(bm: bmesh.types.BMesh):
+    """
+    Return a list of face islands (each island = list of BMFace objects)
+    for the given BMesh. Pure BMesh, no bpy.ops, no context.
 
-    try:
-        bpy.ops.object.mode_set(mode="EDIT")
-    except RuntimeError:
-        return False, True
+    Two faces are considered connected if they share an edge.
+    """
+    bm.faces.ensure_lookup_table()
+    bm.edges.ensure_lookup_table()
 
-    changed = False
-    clean = True
+    for f in bm.faces:
+        f.tag = False  # unvisited
 
-    try:
-        try:
-            bpy.ops.mesh.select_mode(type="VERT")
-        except RuntimeError:
-            pass
+    islands = []
+    for f in bm.faces:
+        if f.tag:
+            continue
+        island = []
+        q = deque([f])
+        f.tag = True
 
-        try:
-            bpy.ops.mesh.select_all(action="SELECT")
-        except RuntimeError:
-            pass
+        while q:
+            cur = q.popleft()
+            island.append(cur)
+            for e in cur.edges:
+                for nf in e.link_faces:
+                    if not nf.tag:
+                        nf.tag = True
+                        q.append(nf)
 
-        bm = bmesh.from_edit_mesh(mesh)
+        islands.append(island)
 
-        if _triangulate_bmesh(bm):
-            changed = True
-
-        if _delete_small_vertex_islands(bm, min_vertices=100):
-            changed = True
-
-        bm.normal_update()
-        bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
-
-        if delete_interior_faces():
-            changed = True
-
-        try:
-            delete_loose_result = bpy.ops.mesh.delete_loose()
-        except RuntimeError:
-            delete_loose_result = set()
-        else:
-            if "FINISHED" in delete_loose_result:
-                changed = True
-
-        bm = bmesh.from_edit_mesh(mesh)
-
-        if _fill_and_triangulate_holes(bm):
-            changed = True
-
-        bm.normal_update()
-        bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
-
-        bm = bmesh.from_edit_mesh(mesh)
-
-        if _dissolve_degenerate_and_triangulate(bm, threshold=0.01):
-            changed = True
-
-        bm.normal_update()
-        bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
-
-        bm = bmesh.from_edit_mesh(mesh)
-        bm.edges.ensure_lookup_table()
-        clean = not any(edge.is_valid and not edge.is_manifold for edge in bm.edges)
-    finally:
-        try:
-            bpy.ops.object.mode_set(mode="OBJECT")
-        except RuntimeError:
-            pass
-
-    return changed, clean
+    return islands
 
 
 class T4P_OT_clean_non_manifold(Operator):
@@ -273,9 +301,11 @@ class T4P_OT_clean_non_manifold(Operator):
 
         initial_active = context.view_layer.objects.active
         scene = context.scene
-        cleaned_objects: list[bpy.types.Object] = []
-        objects_with_errors: list[bpy.types.Object] = []
-        mesh_candidates = 0
+        num_candidates = 0
+        num_fine = 0
+        num_failed = 0
+        num_fixed = 0
+        num_worse = 0
 
         for obj in selected_objects:
             if obj.type != "MESH" or obj.data is None:
@@ -284,53 +314,41 @@ class T4P_OT_clean_non_manifold(Operator):
             if scene is not None and scene.objects.get(obj.name) is None:
                 continue
 
-            mesh_candidates += 1
+            num_candidates += 1
 
             context.view_layer.objects.active = obj
             obj.select_set(True)
+            changed, clean, worse = _clean_object_non_manifold(obj, 0.001, 100)
 
-            try:
-                changed, clean = _clean_object_non_manifold(obj)
-            except RuntimeError:
-                changed = False
-                clean = True
-
-            if changed:
-                cleaned_objects.append(obj)
-
-            if not clean:
-                objects_with_errors.append(obj)
+            if clean and not changed:
+                num_fine += 1
+            elif clean and changed:
+                num_fixed += 1
+            elif not clean and changed:
+                num_failed += 1
+            if worse:
+                num_worse += 1
 
         if initial_active and (
-            scene is None
-            or scene.objects.get(initial_active.name) is not None
+                scene is None
+                or scene.objects.get(initial_active.name) is not None
         ):
             context.view_layer.objects.active = initial_active
         elif initial_active is None:
             context.view_layer.objects.active = None
-        elif cleaned_objects:
-            context.view_layer.objects.active = cleaned_objects[0]
         else:
             context.view_layer.objects.active = None
 
-        if mesh_candidates == 0:
+        if num_candidates == 0:
             self.report({"INFO"}, "No mesh objects selected.")
-        elif cleaned_objects:
-            self.report(
-                {"INFO"},
-                "Cleaned non-manifold geometry on: {}".format(
-                    ", ".join(obj.name for obj in cleaned_objects)
-                ),
-            )
-        else:
-            self.report({"INFO"}, "No changes made to selected meshes.")
+        elif num_failed == 0 and num_fixed > 0 and num_worse == 0:
+            self.report({"INFO"}, "Fixed all on {} objects".format(num_fixed))
+        elif num_fixed > 0 or num_failed > 0 and num_worse == 0:
+            self.report({"WARNING"}, "Cleaned {} objects, {} clean".format(num_candidates, num_fixed))
+        elif num_worse > 0:
+            self.report({"ERROR"}, "Cleaned {} objects, but {} is worse".format(num_candidates, num_worse))
 
-        if objects_with_errors:
-            error_names = ", ".join(obj.name for obj in objects_with_errors)
-            self.report(
-                {"WARNING"},
-                "Objects still contain non-manifold edges: {}".format(error_names),
-            )
+        if num_failed > 0 or num_worse > 0:
             _play_warning_sound(context)
         else:
             _play_happy_sound(context)
@@ -339,6 +357,5 @@ class T4P_OT_clean_non_manifold(Operator):
 
 
 profile_module(globals())
-
 
 __all__ = ("T4P_OT_clean_non_manifold",)
