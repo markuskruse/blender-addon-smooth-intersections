@@ -86,7 +86,7 @@ class T4P_OT_filter_non_manifold(Operator):
             self.report({"INFO"}, "All checked mesh objects are manifold.")
             _play_happy_sound(context)
         else:
-            self.report({"WARNING"}, "Deselected non-manifold meshes, {} remain.", len(non_manifold_list))
+            self.report({"WARNING"}, "Deselected non-manifold meshes, {} remain.".format(len(non_manifold_list)))
             _play_warning_sound(context)
 
         return {"FINISHED"}
