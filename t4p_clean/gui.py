@@ -10,6 +10,8 @@ from .main import (
     CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
     FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
     FILTER_OPERATOR_IDNAME,
+    FOCUS_INTERSECTIONS_OPERATOR_IDNAME,
+    FOCUS_NON_MANIFOLD_OPERATOR_IDNAME,
     SELECT_INTERSECTIONS_OPERATOR_IDNAME,
     SELECT_NON_MANIFOLD_OPERATOR_IDNAME,
     SMOOTH_OPERATOR_IDNAME,
@@ -64,6 +66,17 @@ class T4P_PT_main_panel(Panel):
         select_row.operator(
             SELECT_NON_MANIFOLD_OPERATOR_IDNAME,
             text="Select non manifold",
+        )
+
+        focus_row = controls_col.row(align=True)
+        focus_row.enabled = context.mode == "EDIT_MESH"
+        focus_row.operator(
+            FOCUS_INTERSECTIONS_OPERATOR_IDNAME,
+            text="Focus on intersection",
+        )
+        focus_row.operator(
+            FOCUS_NON_MANIFOLD_OPERATOR_IDNAME,
+            text="Focus on non manifold",
         )
 
         controls_col.label(text="Cleanup")
