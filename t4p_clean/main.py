@@ -33,6 +33,7 @@ CLEAN_NON_MANIFOLD_OPERATOR_IDNAME = (
     "t4p_smooth_intersection.clean_non_manifold"
 )
 TRIANGULATE_OPERATOR_IDNAME = "t4p_smooth_intersection.triangulate_selected"
+SPLIT_LONG_FACES_OPERATOR_IDNAME = "t4p_smooth_intersection.split_long_faces"
 
 
 class T4PAddonPreferences(bpy.types.AddonPreferences):
@@ -211,6 +212,7 @@ def _iter_classes():
     from .operations.filter_non_manifold import T4P_OT_filter_non_manifold
     from .operations.clean_intersections import T4P_OT_smooth_intersections
     from .operations.triangulate import T4P_OT_triangulate_selected
+    from .operations.split_long_faces import T4P_OT_split_long_faces
     from .gui import T4P_PT_main_panel
 
     operator_classes = [
@@ -220,6 +222,7 @@ def _iter_classes():
         T4P_OT_filter_non_manifold,
         T4P_OT_clean_non_manifold,
         T4P_OT_triangulate_selected,
+        T4P_OT_split_long_faces,
     ]
 
     return (T4PAddonPreferences, *operator_classes, T4P_PT_main_panel)
@@ -272,6 +275,7 @@ __all__ = (
     "FILTER_NON_MANIFOLD_OPERATOR_IDNAME",
     "CLEAN_NON_MANIFOLD_OPERATOR_IDNAME",
     "TRIANGULATE_OPERATOR_IDNAME",
+    "SPLIT_LONG_FACES_OPERATOR_IDNAME",
     "_triangulate_bmesh",
     "T4P_OT_batch_decimate",
     "T4PAddonPreferences",
