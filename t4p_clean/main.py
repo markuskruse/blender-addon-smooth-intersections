@@ -35,6 +35,12 @@ SELECT_INTERSECTIONS_OPERATOR_IDNAME = (
 SELECT_NON_MANIFOLD_OPERATOR_IDNAME = (
     "t4p_smooth_intersection.select_non_manifold"
 )
+FOCUS_INTERSECTIONS_OPERATOR_IDNAME = (
+    "t4p_smooth_intersection.focus_intersections"
+)
+FOCUS_NON_MANIFOLD_OPERATOR_IDNAME = (
+    "t4p_smooth_intersection.focus_non_manifold"
+)
 CLEAN_NON_MANIFOLD_OPERATOR_IDNAME = (
     "t4p_smooth_intersection.clean_non_manifold"
 )
@@ -217,8 +223,14 @@ def _iter_classes():
     from .operations.filter_intersections import T4P_OT_filter_intersections
     from .operations.filter_non_manifold import T4P_OT_filter_non_manifold
     from .operations.clean_intersections import T4P_OT_smooth_intersections
-    from .operations.select_intersections import T4P_OT_select_intersections
-    from .operations.select_non_manifold import T4P_OT_select_non_manifold
+    from .operations.select_intersections import (
+        T4P_OT_focus_intersections,
+        T4P_OT_select_intersections,
+    )
+    from .operations.select_non_manifold import (
+        T4P_OT_focus_non_manifold,
+        T4P_OT_select_non_manifold,
+    )
     from .operations.triangulate import T4P_OT_triangulate_selected
     from .operations.split_long_faces import T4P_OT_split_long_faces
     from .gui import T4P_PT_main_panel
@@ -230,6 +242,8 @@ def _iter_classes():
         T4P_OT_filter_non_manifold,
         T4P_OT_select_intersections,
         T4P_OT_select_non_manifold,
+        T4P_OT_focus_intersections,
+        T4P_OT_focus_non_manifold,
         T4P_OT_clean_non_manifold,
         T4P_OT_triangulate_selected,
         T4P_OT_split_long_faces,
@@ -285,6 +299,8 @@ __all__ = (
     "FILTER_NON_MANIFOLD_OPERATOR_IDNAME",
     "SELECT_INTERSECTIONS_OPERATOR_IDNAME",
     "SELECT_NON_MANIFOLD_OPERATOR_IDNAME",
+    "FOCUS_INTERSECTIONS_OPERATOR_IDNAME",
+    "FOCUS_NON_MANIFOLD_OPERATOR_IDNAME",
     "CLEAN_NON_MANIFOLD_OPERATOR_IDNAME",
     "TRIANGULATE_OPERATOR_IDNAME",
     "SPLIT_LONG_FACES_OPERATOR_IDNAME",
