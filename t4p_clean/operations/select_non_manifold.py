@@ -113,13 +113,13 @@ class T4P_OT_focus_non_manifold(Operator):
         bpy.ops.mesh.select_all(action="DESELECT")
         bm = get_bmesh(mesh)
         if selected_faces:
-            first_face = [selected_faces[0]]
+            first_face = [selected_faces[0].index]
             select_faces(first_face, mesh, bm)
         elif selected_edges:
-            first_face = [selected_edges[0].link_faces[0]]
+            first_face = [selected_edges[0].link_faces[0].index]
             select_faces(first_face, mesh, bm)
         elif selected_verts:
-            first_face = [selected_verts[0].link_faces[0]]
+            first_face = [selected_verts[0].link_faces[0].index]
             select_faces(first_face, mesh, bm)
         else:
             self.report({"INFO"}, "No non manifold geometry were found.")
