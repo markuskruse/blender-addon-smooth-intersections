@@ -8,12 +8,10 @@ from typing import MutableSequence
 import bmesh
 import bpy
 from bpy.props import BoolProperty, FloatProperty, IntProperty
-from bpy.types import Operator
 from mathutils.bvhtree import BVHTree
 
 from .debug import DEBUG_PREFERENCE_ATTR, profile_module
-from .audio import _play_happy_sound, \
-    _disable_profiling_for_audio
+from .audio import _disable_profiling_for_audio
 
 try:
     import aud  # type: ignore[attr-defined]
@@ -165,81 +163,11 @@ def focus_view_on_selected_faces(context):
     return False
 
 
-class T4P_OT_batch_decimate(Operator):
-    """Apply a decimate modifier to all selected mesh objects."""
-
-    bl_idname = BATCH_DECIMATE_OPERATOR_IDNAME
-    bl_label = "Batch Decimate Selected Meshes"
-    bl_description = "Apply the decimate modifier to all selected mesh objects"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, context: bpy.types.Context):
-        if context.mode != "OBJECT":
-            self.report({"ERROR"}, "Switch to Object mode to batch decimate objects.")
-            return {"CANCELLED"}
-
-        scene = context.scene
-        ratio = float(getattr(scene, "t4p_batch_decimate_ratio", 0.5))
-        if ratio <= 0.0 or ratio > 1.0:
-            self.report({"ERROR"}, "Decimation ratio must be greater than 0 and at most 1.")
-            return {"CANCELLED"}
-
-        selected_objects = list(getattr(context, "selected_objects", []))
-        if not selected_objects:
-            self.report({"INFO"}, "No objects selected.")
-            _play_happy_sound(context)
-            return {"FINISHED"}
-
-        mesh_objects = [
-            obj for obj in selected_objects if obj.type == "MESH" and obj.data is not None
-        ]
-        if not mesh_objects:
-            self.report({"INFO"}, "No mesh objects selected.")
-            _play_happy_sound(context)
-            return {"FINISHED"}
-
-        initial_active = context.view_layer.objects.active
-        decimated_objects: list[str] = []
-
-        for obj in mesh_objects:
-            context.view_layer.objects.active = obj
-            try:
-                modifier = obj.modifiers.new(name="T4P_BatchDecimate", type="DECIMATE")
-            except (RuntimeError, ValueError):
-                continue
-
-            modifier.show_viewport = False
-            modifier.show_render = False
-            if hasattr(modifier, "decimate_type"):
-                modifier.decimate_type = "COLLAPSE"
-            modifier.ratio = ratio
-
-            try:
-                bpy.ops.object.modifier_apply(modifier=modifier.name)
-            except RuntimeError:
-                if obj.modifiers.get(modifier.name) is not None:
-                    obj.modifiers.remove(modifier)
-                continue
-
-            decimated_objects.append(obj.name)
-
-        if initial_active and context.scene.objects.get(initial_active.name) is not None:
-            context.view_layer.objects.active = initial_active
-
-        if decimated_objects:
-            object_list = ", ".join(decimated_objects)
-            self.report({"INFO"}, f"Decimated: {object_list}")
-        else:
-            self.report({"INFO"}, "Decimation modifiers could not be applied.")
-
-        _play_happy_sound(context)
-        return {"FINISHED"}
-
-
 _disable_profiling_for_audio()
 
 
 def _iter_classes():
+    from .operations.batch_decimate import T4P_OT_batch_decimate
     from .operations.clean_non_manifold import T4P_OT_clean_non_manifold
     from .operations.filter_intersections import T4P_OT_filter_intersections
     from .operations.filter_non_manifold import T4P_OT_filter_non_manifold
@@ -325,6 +253,5 @@ __all__ = (
     "TRIANGULATE_OPERATOR_IDNAME",
     "SPLIT_LONG_FACES_OPERATOR_IDNAME",
     "_triangulate_bmesh",
-    "T4P_OT_batch_decimate",
     "T4PAddonPreferences",
 )
