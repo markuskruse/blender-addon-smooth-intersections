@@ -269,55 +269,23 @@ def _clean_mesh_intersections(
     if mesh is None:
         return True
 
-    smoothed_attempts = 0
-
     bm = get_bmesh(mesh)
     _triangulate_bmesh(bm)
     bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=True)
 
-    split = True
-    splits = 0
-    while split:
-        face_indices = bmesh_get_intersecting_face_indices(bm)
-        if not face_indices:
-            return True
-
-        changed = split_intersections(bm, 1)
-        if changed:
-            _triangulate_bmesh(bm)
-            face_indices = bmesh_get_intersecting_face_indices(bm)
-            if not face_indices:
-                return True
-        else:
-            split = False
-        splits += 1
-        if splits >= 3:
-            split = False
-
     for iteration in range(1, max_attempts + 1):
         bpy.ops.mesh.select_mode(type="FACE")
         bm = get_bmesh(mesh)
-        face_indices = bmesh_get_intersecting_face_indices(bm)
+        face_indices = list(bmesh_get_intersecting_face_indices(bm))
+        print("num face indices", len(face_indices))
         if len(face_indices) == 0:
             return True
 
-        select_faces(face_indices, obj)
-        if iteration > 2:
-            _grow_selection(3)
-        else:
-            _grow_selection(2)
-        _shrink_selection(1)
-        if iteration > 2:
-            bpy.ops.mesh.vertices_smooth(factor=0.5, repeat=3)
-        else:
-            bpy.ops.mesh.vertices_smooth(factor=0.5, repeat=2)
-
-    bm = get_bmesh(mesh)
-    face_indices = bmesh_get_intersecting_face_indices(bm)
-    if len(face_indices) == 0:
-        return True
-
-    #_test_shrink_fatten(obj, mesh, bm)
+        select_faces(face_indices, mesh, bm)
+        bpy.ops.mesh.select_more()
+        bpy.ops.mesh.select_more()
+        bpy.ops.mesh.select_less()
+        bpy.ops.mesh.vertices_smooth(factor=0.5, repeat=2)
 
     bm = get_bmesh(mesh)
     face_indices = bmesh_get_intersecting_face_indices(bm)
@@ -339,6 +307,8 @@ class T4P_OT_smooth_intersections(Operator):
 
         initial_active = context.view_layer.objects.active
         initial_selection = list(context.selected_objects)
+
+        bpy.ops.object.select_all(action='DESELECT')
 
         smoothed_objects: List[str] = []
         scene = context.scene

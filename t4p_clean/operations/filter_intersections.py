@@ -38,6 +38,8 @@ class T4P_OT_filter_intersections(Operator):
             self.report({"INFO"}, "No objects selected.")
             return {"FINISHED"}
 
+        bpy.ops.object.select_all(action='DESELECT')
+
         objects_with_intersections: list[bpy.types.Object] = []
         mesh_candidates = 0
 
@@ -45,20 +47,23 @@ class T4P_OT_filter_intersections(Operator):
             face_indices = array.array("i", ())
             if obj.type == "MESH" and obj.data is not None:
                 mesh_candidates += 1
-                bm = bmesh.new()
-                bm.from_mesh(obj.data)
+                context.view_layer.objects.active = obj
+                obj.select_set(True)
+                bpy.ops.object.mode_set(mode="EDIT")
+                bm = bmesh.from_edit_mesh(obj.data)
                 bm.verts.ensure_lookup_table()
                 bm.faces.ensure_lookup_table()
                 bm.edges.ensure_lookup_table()
 
                 face_indices = bmesh_get_intersecting_face_indices(bm)
-                select_faces(face_indices, obj)
+                bpy.ops.object.mode_set(mode="OBJECT")
+                obj.select_set(False)
 
-            has_intersections = bool(face_indices)
-            obj.select_set(has_intersections)
-
-            if has_intersections:
+            if bool(face_indices):
                 objects_with_intersections.append(obj)
+
+        for obj in objects_with_intersections:
+            obj.select_set(True)
 
         new_active = None
         if initial_active and initial_active in objects_with_intersections:

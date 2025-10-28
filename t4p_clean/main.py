@@ -77,6 +77,7 @@ def select_non_manifold_verts(
 
 def count_non_manifold_verts(bm):
     """return a set of coordinates of non-manifold vertices"""
+    bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
     select_non_manifold_verts(use_wire=True, use_boundary=True, use_verts=True, use_multi_face=True)
     return sum((1 for v in bm.verts if v.select))
 
@@ -120,16 +121,48 @@ def bmesh_get_intersecting_face_indices(
     return array.array("i", faces_error)
 
 
-def select_faces(face_indices: MutableSequence[int], obj):
-    if face_indices:
-        polygons = obj.data.polygons
-        if polygons:
-            selection = [False] * len(polygons)
-            for index in face_indices:
-                if 0 <= index < len(selection):
-                    selection[index] = True
-            polygons.foreach_set("select", selection)
-            obj.data.update()
+def select_faces(face_indices: MutableSequence[int], mesh, bm):
+    bm.faces.ensure_lookup_table()
+
+    for i in face_indices:
+        if 0 <= i < len(bm.faces):
+            bm.faces[i].select_set(True)
+
+    bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+
+
+def get_selected_faces(bm: bmesh.types.BMesh):
+    """Return a list of all selected faces in the BMesh."""
+    return [f for f in bm.faces if f.select]
+
+
+def get_selected_edges(bm: bmesh.types.BMesh):
+    """Return a list of all selected edges in the BMesh."""
+    return [e for e in bm.edges if e.select]
+
+
+def get_selected_verts(bm: bmesh.types.BMesh):
+    """Return a list of all selected vertices in the BMesh."""
+    return [v for v in bm.verts if v.select]
+
+
+def focus_view_on_selected_faces(context):
+    """Focus the 3D Viewport on the currently selected faces."""
+
+    for area in context.screen.areas:
+        if area.type == 'VIEW_3D':
+            region = next((r for r in area.regions if r.type == 'WINDOW'), None)
+            if region is None:
+                continue
+            space = next((s for s in area.spaces if s.type == 'VIEW_3D'), None)
+            if space is None:
+                continue
+
+            with context.temp_override(area=area, region=region, space_data=space):
+                bpy.ops.view3d.view_selected(use_all_regions=False)
+            return True
+
+    return False
 
 
 class T4P_OT_batch_decimate(Operator):

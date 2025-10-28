@@ -36,7 +36,7 @@ if %errorlevel% neq 0 (
     exit /b %errorlevel%
 ) else (
     echo.
-    echo ✅ ZIP created successfully:
+    echo ZIP created successfully:
     echo   %ZIP_PATH%
 )
 

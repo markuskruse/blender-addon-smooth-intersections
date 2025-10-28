@@ -12,42 +12,13 @@ from ..main import (
     FOCUS_NON_MANIFOLD_OPERATOR_IDNAME,
     SELECT_NON_MANIFOLD_OPERATOR_IDNAME,
     select_non_manifold_verts,
+    select_faces,
+    get_bmesh,
+    focus_view_on_selected_faces,
+    get_selected_faces,
+    get_selected_edges,
+    get_selected_verts
 )
-
-
-def _deselect_edit_geometry() -> None:
-    bpy.ops.mesh.select_all(action="DESELECT")
-
-
-def _reveal_edit_geometry() -> None:
-    bpy.ops.mesh.reveal(select=False)
-
-
-def _reveal_selected_elements(bm: bmesh.types.BMesh) -> tuple[int, int, int]:
-    bm.verts.ensure_lookup_table()
-    bm.edges.ensure_lookup_table()
-    bm.faces.ensure_lookup_table()
-
-    selected_vertices = 0
-    selected_edges = 0
-    selected_faces = 0
-
-    for vert in bm.verts:
-        if vert.select:
-            vert.hide_set(False)
-            selected_vertices += 1
-
-    for edge in bm.edges:
-        if edge.select:
-            edge.hide_set(False)
-            selected_edges += 1
-
-    for face in bm.faces:
-        if face.select:
-            face.hide_set(False)
-            selected_faces += 1
-
-    return selected_vertices, selected_edges, selected_faces
 
 
 def _select_faces_linked_to_selection(bm: bmesh.types.BMesh) -> int:
@@ -90,38 +61,6 @@ def _first_selected_face_center(bm: bmesh.types.BMesh) -> Vector | None:
     return None
 
 
-def _focus_view_on_location(context: bpy.types.Context, location: Vector | None) -> bool:
-    if location is None or context.screen is None:
-        return False
-
-    view_area = next((area for area in context.screen.areas if area.type == "VIEW_3D"), None)
-    if view_area is None:
-        return False
-
-    region = next((region for region in view_area.regions if region.type == "WINDOW"), None)
-    if region is None:
-        return False
-
-    space = view_area.spaces.active
-    region_3d = getattr(space, "region_3d", None)
-    if region_3d is None:
-        return False
-
-    region_3d.view_location = location
-
-    override = context.copy()
-    override["area"] = view_area
-    override["region"] = region
-    override["space_data"] = space
-
-    try:
-        bpy.ops.view3d.view_selected(override, use_all_regions=False)
-    except RuntimeError:
-        return False
-
-    return True
-
-
 class T4P_OT_select_non_manifold(Operator):
     """Select all non-manifold geometry in the active mesh."""
 
@@ -131,23 +70,7 @@ class T4P_OT_select_non_manifold(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        if context.mode != "EDIT_MESH":
-            self.report({"ERROR"}, "Switch to Edit mode to select non-manifold geometry.")
-            return {"CANCELLED"}
-
-        editable_object = context.edit_object
-        if (
-            editable_object is None
-            or editable_object.type != "MESH"
-            or editable_object.data is None
-        ):
-            self.report({"INFO"}, "No editable mesh object selected.")
-            return {"CANCELLED"}
-
-        mesh = editable_object.data
-        bm = bmesh.from_edit_mesh(mesh)
-
-        _deselect_edit_geometry()
+        bpy.ops.mesh.select_all(action="DESELECT")
         select_non_manifold_verts(
             use_wire=True,
             use_boundary=True,
@@ -156,25 +79,6 @@ class T4P_OT_select_non_manifold(Operator):
             use_verts=True,
         )
 
-        selected_vertices, selected_edges, selected_faces = _reveal_selected_elements(bm)
-
-        if not any((selected_vertices, selected_edges, selected_faces)):
-            bmesh.update_edit_mesh(mesh)
-            self.report({"INFO"}, "All visible geometry is manifold.")
-            return {"FINISHED"}
-
-        bmesh.update_edit_mesh(mesh)
-
-        parts = []
-        if selected_vertices:
-            parts.append(f"{selected_vertices} vertices")
-        if selected_edges:
-            parts.append(f"{selected_edges} edges")
-        if selected_faces:
-            parts.append(f"{selected_faces} faces")
-        summary = ", ".join(parts)
-
-        self.report({"INFO"}, f"Selected non-manifold geometry: {summary}.")
         return {"FINISHED"}
 
 
@@ -187,25 +91,13 @@ class T4P_OT_focus_non_manifold(Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        if context.mode != "EDIT_MESH":
-            self.report({"ERROR"}, "Switch to Edit mode to focus on non-manifold geometry.")
-            return {"CANCELLED"}
-
         editable_object = context.edit_object
-        if (
-            editable_object is None
-            or editable_object.type != "MESH"
-            or editable_object.data is None
-        ):
-            self.report({"INFO"}, "No editable mesh object selected.")
-            return {"CANCELLED"}
-
-        _deselect_edit_geometry()
-        _reveal_edit_geometry()
 
         mesh = editable_object.data
-        bm = bmesh.from_edit_mesh(mesh)
+        bpy.ops.mesh.reveal(select=False)
+        bpy.ops.mesh.select_all(action="DESELECT")
 
+        bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
         select_non_manifold_verts(
             use_wire=True,
             use_boundary=True,
@@ -214,43 +106,38 @@ class T4P_OT_focus_non_manifold(Operator):
             use_verts=True,
         )
 
-        selected_vertices, selected_edges, selected_faces = _reveal_selected_elements(bm)
-        additional_faces = _select_faces_linked_to_selection(bm)
-        focus_location = _first_selected_face_center(bm)
+        bm = get_bmesh(mesh)
+        selected_faces = get_selected_faces(bm)
+        selected_edges = get_selected_edges(bm)
+        selected_verts = get_selected_verts(bm)
+        bpy.ops.mesh.select_all(action="DESELECT")
+        bm = get_bmesh(mesh)
+        if selected_faces:
+            first_face = [selected_faces[0]]
+            select_faces(first_face, mesh, bm)
+        elif selected_edges:
+            first_face = [selected_edges[0].link_faces[0]]
+            select_faces(first_face, mesh, bm)
+        elif selected_verts:
+            first_face = [selected_verts[0].link_faces[0]]
+            select_faces(first_face, mesh, bm)
+        else:
+            self.report({"INFO"}, "No non manifold geometry were found.")
+            return {"CANCELLED"}
+
         bmesh.update_edit_mesh(mesh)
 
-        if not any((selected_vertices, selected_edges, selected_faces, additional_faces)):
-            self.report({"INFO"}, "All visible geometry is manifold.")
-            return {"FINISHED"}
+        focus_view_on_selected_faces(context)
 
-        if focus_location is None:
-            self.report(
-                {"INFO"},
-                "Selected non-manifold geometry but could not find a face to focus on.",
-            )
-            return {"FINISHED"}
-
-        if not _focus_view_on_location(context, focus_location):
-            self.report(
-                {"INFO"},
-                "Selected non-manifold geometry but could not focus the 3D Viewport.",
-            )
-            return {"FINISHED"}
-
-        total_faces = selected_faces + additional_faces
-        parts = []
-        if selected_vertices:
-            parts.append(f"{selected_vertices} vertices")
-        if selected_edges:
-            parts.append(f"{selected_edges} edges")
-        if total_faces:
-            parts.append(f"{total_faces} faces")
-        summary = ", ".join(parts)
-
-        self.report(
-            {"INFO"},
-            f"Focused on non-manifold geometry: {summary}.",
+        bpy.ops.mesh.select_mode(use_extend=False, use_expand=False, type='VERT')
+        select_non_manifold_verts(
+            use_wire=True,
+            use_boundary=True,
+            use_multi_face=True,
+            use_non_contiguous=True,
+            use_verts=True,
         )
+
         return {"FINISHED"}
 
 

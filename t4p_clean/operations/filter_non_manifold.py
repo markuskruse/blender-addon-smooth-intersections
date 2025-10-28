@@ -9,7 +9,8 @@ from bpy.types import Operator
 from ..debug import profile_module
 from ..main import (
     FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
-    count_non_manifold_verts
+    count_non_manifold_verts,
+    get_bmesh
 )
 from ..audio import _play_happy_sound, _play_warning_sound
 
@@ -33,6 +34,8 @@ class T4P_OT_filter_non_manifold(Operator):
             self.report({"INFO"}, "No objects selected.")
             return {"FINISHED"}
 
+        bpy.ops.object.select_all(action='DESELECT')
+
         initial_active = context.view_layer.objects.active
         scene = context.scene
         non_manifold_list: list[bpy.types.Object] = []
@@ -52,9 +55,8 @@ class T4P_OT_filter_non_manifold(Operator):
             obj.select_set(True)
 
             bpy.ops.object.mode_set(mode="EDIT")
-            bm = bmesh.from_edit_mesh(obj.data)
-            bm.edges.ensure_lookup_table()
-            bm.verts.ensure_lookup_table()
+
+            bm = get_bmesh(obj.data)
             has_non_manifold = count_non_manifold_verts(bm) > 0
 
             bpy.ops.object.mode_set(mode="OBJECT")

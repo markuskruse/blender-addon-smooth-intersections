@@ -268,6 +268,8 @@ class T4P_OT_clean_non_manifold(Operator):
             self.report({"INFO"}, "No objects selected.")
             return {"FINISHED"}
 
+        bpy.ops.object.select_all(action='DESELECT')
+
         initial_active = context.view_layer.objects.active
         scene = context.scene
         num_candidates = 0
