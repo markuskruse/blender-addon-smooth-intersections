@@ -23,6 +23,7 @@ except Exception as exc:  # pragma: no cover - Blender provides ``aud``.
 else:
     _AUDIO_IMPORT_ERROR = None
 
+ANALYZE_OPERATOR_IDNAME = "t4p_smooth_intersection.analyze_selection"
 BATCH_DECIMATE_OPERATOR_IDNAME = "t4p_smooth_intersection.batch_decimate"
 SMOOTH_OPERATOR_IDNAME = "t4p_smooth_intersection.smooth_intersections"
 FILTER_OPERATOR_IDNAME = "t4p_smooth_intersection.filter_intersections"
@@ -240,6 +241,7 @@ _disable_profiling_for_audio()
 
 
 def _iter_classes():
+    from .operations.analyze import T4P_OT_analyze_selection
     from .operations.clean_non_manifold import T4P_OT_clean_non_manifold
     from .operations.filter_intersections import T4P_OT_filter_intersections
     from .operations.filter_non_manifold import T4P_OT_filter_non_manifold
@@ -257,6 +259,7 @@ def _iter_classes():
     from .gui import T4P_PT_main_panel
 
     operator_classes = [
+        T4P_OT_analyze_selection,
         T4P_OT_batch_decimate,
         T4P_OT_smooth_intersections,
         T4P_OT_filter_intersections,
@@ -313,6 +316,7 @@ profile_module(globals())
 __all__ = (
     "register",
     "unregister",
+    "ANALYZE_OPERATOR_IDNAME",
     "BATCH_DECIMATE_OPERATOR_IDNAME",
     "SMOOTH_OPERATOR_IDNAME",
     "FILTER_OPERATOR_IDNAME",

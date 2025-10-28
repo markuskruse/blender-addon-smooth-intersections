@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .gui import T4P_PT_main_panel
 from .main import (
+    ANALYZE_OPERATOR_IDNAME,
     CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
     FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
     FILTER_OPERATOR_IDNAME,
@@ -15,6 +16,7 @@ from .main import (
     unregister,
 )
 from .operations import (
+    T4P_OT_analyze_selection,
     T4P_OT_clean_non_manifold,
     T4P_OT_filter_intersections,
     T4P_OT_filter_non_manifold,
@@ -40,6 +42,7 @@ __all__ = (
     "unregister",
     "bl_info",
     "SMOOTH_OPERATOR_IDNAME",
+    "ANALYZE_OPERATOR_IDNAME",
     "FILTER_OPERATOR_IDNAME",
     "FILTER_NON_MANIFOLD_OPERATOR_IDNAME",
     "SELECT_INTERSECTIONS_OPERATOR_IDNAME",
@@ -53,6 +56,7 @@ __all__ = (
     "T4P_OT_select_non_manifold",
     "T4P_OT_clean_non_manifold",
     "T4P_OT_triangulate_selected",
+    "T4P_OT_analyze_selection",
     "T4P_PT_main_panel",
 )
 
