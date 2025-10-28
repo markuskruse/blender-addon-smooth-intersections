@@ -6,6 +6,7 @@ from bpy.types import Panel
 
 from .debug import profile_module
 from .main import (
+    ANALYZE_OPERATOR_IDNAME,
     BATCH_DECIMATE_OPERATOR_IDNAME,
     CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
     FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
@@ -37,6 +38,13 @@ class T4P_PT_main_panel(Panel):
         has_selection = bool(getattr(context, "selected_objects", []))
 
         controls_col = layout.column(align=True)
+
+        analyze_row = controls_col.row(align=True)
+        analyze_row.enabled = is_object_mode and has_selection
+        analyze_row.operator(
+            ANALYZE_OPERATOR_IDNAME,
+            text="Analyze",
+        )
 
         triangulate_row = controls_col.row(align=True)
         triangulate_row.enabled = is_object_mode and has_selection
