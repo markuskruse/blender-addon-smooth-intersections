@@ -10,7 +10,8 @@ from ..debug import profile_module
 from ..main import (
     FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
     count_non_manifold_verts,
-    get_bmesh
+    get_bmesh,
+    set_object_analysis_stats,
 )
 from ..audio import _play_happy_sound, _play_warning_sound
 
@@ -57,10 +58,12 @@ class T4P_OT_filter_non_manifold(Operator):
             bpy.ops.object.mode_set(mode="EDIT")
 
             bm = get_bmesh(obj.data)
-            has_non_manifold = count_non_manifold_verts(bm) > 0
+            non_manifold_count = count_non_manifold_verts(bm)
+            has_non_manifold = non_manifold_count > 0
 
             bpy.ops.object.mode_set(mode="OBJECT")
             obj.select_set(False)
+            set_object_analysis_stats(obj, non_manifold_count=non_manifold_count)
             if has_non_manifold:
                 non_manifold_list.append(obj)
 

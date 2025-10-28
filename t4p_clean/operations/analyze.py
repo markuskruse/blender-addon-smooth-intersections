@@ -13,6 +13,7 @@ from ..main import (
     bmesh_get_intersecting_face_indices,
     count_non_manifold_verts,
     get_bmesh,
+    set_object_analysis_stats,
 )
 
 
@@ -89,8 +90,11 @@ class T4P_OT_analyze_selection(Operator):
             bpy.ops.object.mode_set(mode="OBJECT")
             obj.select_set(False)
 
-            obj["t4p_non_manifold_count"] = int(non_manifold_count)
-            obj["t4p_self_intersection_count"] = int(intersection_count)
+            set_object_analysis_stats(
+                obj,
+                non_manifold_count=int(non_manifold_count),
+                intersection_count=int(intersection_count),
+            )
 
             analyses.append((obj.name, non_manifold_count, intersection_count))
 
