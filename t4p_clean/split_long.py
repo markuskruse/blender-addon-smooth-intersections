@@ -4,7 +4,7 @@ from math import radians
 
 import bmesh
 
-from main import bmesh_get_intersecting_face_indices
+from .main import bmesh_get_intersecting_face_indices
 
 
 def split_intersections(bm: bmesh.types.BMesh) -> bool:
@@ -35,8 +35,21 @@ def split_selection(bm: bmesh.types.BMesh):
 
     bm.faces.ensure_lookup_table()
     selected_visible_faces = [f for f in bm.faces if f.select and not f.hide]
+    edges_to_split = set()
     for face in selected_visible_faces:
-        _split_face(bm, face, sharp_angle_threshold)
+        angle = _find_smallest_face_angle(face)
+        if angle < sharp_angle_threshold:
+            edges_to_split.update(_collect_longest_edges(face))
+
+    bmesh.ops.subdivide_edges(
+        bm,
+        edges=list(edges_to_split),
+        cuts=1,
+        use_grid_fill=False,
+        smooth=0.0,
+    )
+
+    bmesh.ops.triangulate(bm, faces=selected_visible_faces)
     bm.normal_update()
 
 

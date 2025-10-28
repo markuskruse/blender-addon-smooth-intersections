@@ -39,3 +39,5 @@ if %errorlevel% neq 0 (
     echo ✅ ZIP created successfully:
     echo   %ZIP_PATH%
 )
+
+call uninstall.bat

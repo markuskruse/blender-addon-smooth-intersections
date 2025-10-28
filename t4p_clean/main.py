@@ -26,18 +26,10 @@ else:
 BATCH_DECIMATE_OPERATOR_IDNAME = "t4p_smooth_intersection.batch_decimate"
 SMOOTH_OPERATOR_IDNAME = "t4p_smooth_intersection.smooth_intersections"
 FILTER_OPERATOR_IDNAME = "t4p_smooth_intersection.filter_intersections"
-FILTER_NON_MANIFOLD_OPERATOR_IDNAME = (
-    "t4p_smooth_intersection.filter_non_manifold"
-)
-SELECT_INTERSECTIONS_OPERATOR_IDNAME = (
-    "t4p_smooth_intersection.select_intersections"
-)
-SELECT_NON_MANIFOLD_OPERATOR_IDNAME = (
-    "t4p_smooth_intersection.select_non_manifold"
-)
-CLEAN_NON_MANIFOLD_OPERATOR_IDNAME = (
-    "t4p_smooth_intersection.clean_non_manifold"
-)
+FILTER_NON_MANIFOLD_OPERATOR_IDNAME = "t4p_smooth_intersection.filter_non_manifold"
+CLEAN_NON_MANIFOLD_OPERATOR_IDNAME = "t4p_smooth_intersection.clean_non_manifold"
+SELECT_INTERSECTIONS_OPERATOR_IDNAME = "t4p_smooth_intersection.select_intersections"
+SELECT_NON_MANIFOLD_OPERATOR_IDNAME = "t4p_smooth_intersection.select_non_manifold"
 TRIANGULATE_OPERATOR_IDNAME = "t4p_smooth_intersection.triangulate_selected"
 SPLIT_LONG_FACES_OPERATOR_IDNAME = "t4p_smooth_intersection.split_long_faces"
 
