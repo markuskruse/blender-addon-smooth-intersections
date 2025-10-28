@@ -1,5 +1,6 @@
 """Operator modules for the T4P clean add-on."""
 
+from .batch_decimate import T4P_OT_batch_decimate
 from .analyze import T4P_OT_analyze_selection
 from .clean_non_manifold import T4P_OT_clean_non_manifold
 from .clean_intersections import T4P_OT_smooth_intersections
@@ -10,6 +11,7 @@ from .select_non_manifold import T4P_OT_select_non_manifold
 from .triangulate import T4P_OT_triangulate_selected
 
 __all__ = (
+    "T4P_OT_batch_decimate",
     "T4P_OT_clean_non_manifold",
     "T4P_OT_analyze_selection",
     "T4P_OT_filter_intersections",
