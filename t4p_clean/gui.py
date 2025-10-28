@@ -4,8 +4,39 @@ from __future__ import annotations
 
 from bpy.types import Panel
 
+
+def _get_active_object_analysis_stats(context) -> tuple[int, int, bool]:
+    """Return analysis stats for the active object, if present."""
+
+    active_object = getattr(context, "active_object", None)
+    if active_object is None:
+        return 0, 0, False
+
+    non_manifold_value = active_object.get("t4p_non_manifold_count")
+    intersection_value = active_object.get("t4p_self_intersection_count")
+
+    has_non_manifold = non_manifold_value is not None
+    has_intersections = intersection_value is not None
+    has_stats = bool(has_non_manifold and has_intersections)
+
+    non_manifold_count = int(non_manifold_value) if has_non_manifold else 0
+    intersection_count = int(intersection_value) if has_intersections else 0
+
+    return non_manifold_count, intersection_count, has_stats
+
+
+def _draw_analysis_stat(layout, label_text: str, value: int) -> None:
+    """Draw a row showing a single analysis value."""
+
+    row = layout.row(align=True)
+    row.label(text=label_text)
+    value_row = row.row(align=True)
+    value_row.alignment = "RIGHT"
+    value_row.label(text=str(value))
+
 from .debug import profile_module
 from .main import (
+    ANALYZE_OPERATOR_IDNAME,
     BATCH_DECIMATE_OPERATOR_IDNAME,
     CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
     FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
@@ -37,6 +68,23 @@ class T4P_PT_main_panel(Panel):
         has_selection = bool(getattr(context, "selected_objects", []))
 
         controls_col = layout.column(align=True)
+
+        analyze_row = controls_col.row(align=True)
+        analyze_row.enabled = is_object_mode and has_selection
+        analyze_row.operator(
+            ANALYZE_OPERATOR_IDNAME,
+            text="Analyze",
+        )
+
+        non_manifold_count, intersection_count, has_stats = (
+            _get_active_object_analysis_stats(context)
+        )
+        stats_col = controls_col.column(align=True)
+        stats_col.use_property_split = True
+        stats_col.use_property_decorate = False
+        stats_col.enabled = has_stats
+        _draw_analysis_stat(stats_col, "Non-manifold vertices", non_manifold_count)
+        _draw_analysis_stat(stats_col, "Self-intersections", intersection_count)
 
         triangulate_row = controls_col.row(align=True)
         triangulate_row.enabled = is_object_mode and has_selection
