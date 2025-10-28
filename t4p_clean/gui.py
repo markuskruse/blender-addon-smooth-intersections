@@ -10,6 +10,8 @@ from .main import (
     CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
     FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
     FILTER_OPERATOR_IDNAME,
+    SELECT_INTERSECTIONS_OPERATOR_IDNAME,
+    SELECT_NON_MANIFOLD_OPERATOR_IDNAME,
     SMOOTH_OPERATOR_IDNAME,
     SPLIT_LONG_FACES_OPERATOR_IDNAME,
     TRIANGULATE_OPERATOR_IDNAME,
@@ -51,6 +53,17 @@ class T4P_PT_main_panel(Panel):
         filters_row.operator(
             FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
             text="Non manifold",
+        )
+
+        select_row = controls_col.row(align=True)
+        select_row.enabled = context.mode == "EDIT_MESH"
+        select_row.operator(
+            SELECT_INTERSECTIONS_OPERATOR_IDNAME,
+            text="Select intersections",
+        )
+        select_row.operator(
+            SELECT_NON_MANIFOLD_OPERATOR_IDNAME,
+            text="Select non manifold",
         )
 
         controls_col.label(text="Cleanup")
