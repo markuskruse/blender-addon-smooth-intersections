@@ -9,10 +9,9 @@ from bpy.types import Operator
 from ..debug import profile_module
 from ..main import (
     FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
-    _play_happy_sound,
-    _play_warning_sound,
     count_non_manifold_verts
 )
+from ..audio import _play_happy_sound, _play_warning_sound
 
 
 class T4P_OT_filter_non_manifold(Operator):

@@ -12,6 +12,8 @@ from bpy.types import Operator
 from mathutils.bvhtree import BVHTree
 
 from .debug import DEBUG_PREFERENCE_ATTR, profile_module
+from .audio import _play_happy_sound, \
+    _disable_profiling_for_audio
 
 try:
     import aud  # type: ignore[attr-defined]
@@ -32,14 +34,6 @@ CLEAN_NON_MANIFOLD_OPERATOR_IDNAME = (
 )
 TRIANGULATE_OPERATOR_IDNAME = "t4p_smooth_intersection.triangulate_selected"
 
-_AUDIO_DEVICE: aud.Device | None
-_AUDIO_DEVICE = None
-_AUDIO_DEVICE_UNAVAILABLE = False
-_PLAYBACK_HANDLES: list[aud.Handle] = [] if aud is not None else []
-_ADDON_DIR = os.path.dirname(__file__)
-_HAPPY_SOUND_PATH = os.path.join(_ADDON_DIR, "chime.wav")
-_WARNING_SOUND_PATH = os.path.join(_ADDON_DIR, "warning.wav")
-
 
 class T4PAddonPreferences(bpy.types.AddonPreferences):
     """Add-on preferences exposed in the Blender add-on settings."""
@@ -55,197 +49,6 @@ class T4PAddonPreferences(bpy.types.AddonPreferences):
     def draw(self, context: bpy.types.Context) -> None:  # pragma: no cover - UI code
         layout = self.layout
         layout.prop(self, DEBUG_PREFERENCE_ATTR, text="Enable debug output")
-
-
-def _report_audio_issue(context: bpy.types.Context | None, message: str) -> None:
-    """Report an audio related issue to the system console."""
-
-    print(f"[T4P][audio] {message}")
-
-
-def _get_audio_device(context: bpy.types.Context | None = None) -> aud.Device | None:
-    """Return a shared audio device when available."""
-
-    global _AUDIO_DEVICE, _AUDIO_DEVICE_UNAVAILABLE
-
-    if bpy.app.background:
-        return None
-    if _AUDIO_DEVICE_UNAVAILABLE:
-        return None
-    if aud is None:
-        if not _AUDIO_DEVICE_UNAVAILABLE:
-            details = (
-                f"Failed to import Blender's audio module: {_AUDIO_IMPORT_ERROR}"
-                if _AUDIO_IMPORT_ERROR is not None
-                else "The 'aud' module is not available; sound notifications are disabled."
-            )
-            _report_audio_issue(context, details)
-        _AUDIO_DEVICE_UNAVAILABLE = True
-        return None
-
-    if _AUDIO_DEVICE is None:
-        try:
-            _AUDIO_DEVICE = aud.Device()  # type: ignore[attr-defined]
-        except Exception as exc:  # pragma: no cover - Blender specific failure path.
-            _report_audio_issue(context, f"Unable to create audio device: {exc}")
-            _AUDIO_DEVICE = None
-            _AUDIO_DEVICE_UNAVAILABLE = True
-
-    return _AUDIO_DEVICE
-
-
-def _cleanup_finished_playback() -> None:
-    """Drop finished audio handles so playback continues on Linux."""
-
-    global _PLAYBACK_HANDLES
-
-    if aud is None or not _PLAYBACK_HANDLES:
-        _PLAYBACK_HANDLES = []
-        return
-
-    playing_status = getattr(aud, "AUD_STATUS_PLAYING", None)
-    paused_status = getattr(aud, "AUD_STATUS_PAUSED", None)
-
-    active_handles: list[aud.Handle] = []
-    for handle in _PLAYBACK_HANDLES:
-        status = getattr(handle, "status", None)
-        if status in (playing_status, paused_status):
-            active_handles.append(handle)
-
-    _PLAYBACK_HANDLES = active_handles
-
-
-def _play_sound(
-    context: bpy.types.Context | None,
-    sound_path: str,
-    *,
-    volume: float = 1.0,
-    pitch: float = 1.0,
-) -> None:
-    """Play a sound file through Blender's shared audio device."""
-
-    device = _get_audio_device(context)
-    if device is None:
-        return
-
-    if not os.path.isfile(sound_path):
-        _report_audio_issue(
-            context, f"Audio file missing: '{os.path.basename(sound_path)}'"
-        )
-        return
-
-    _cleanup_finished_playback()
-
-    try:
-        sound = aud.Sound(sound_path)  # type: ignore[attr-defined]
-        if pitch != 1.0:
-            sound = sound.pitch(pitch)
-        device.volume = volume
-        handle = device.play(sound)
-        if handle is not None:
-            if hasattr(handle, "volume"):
-                try:
-                    handle.volume = volume  # type: ignore[assignment]
-                except Exception:  # pragma: no cover - depends on runtime environment.
-                    pass
-            _PLAYBACK_HANDLES.append(handle)
-    except Exception as exc:  # pragma: no cover - depends on runtime environment.
-        _report_audio_issue(context, f"Failed to play sound '{sound_path}': {exc}")
-
-
-def _play_happy_sound(context: bpy.types.Context | None = None) -> None:
-    """Play the confirmation chime when operations succeed."""
-
-    _play_sound(context, _HAPPY_SOUND_PATH)
-
-
-def _play_warning_sound(context: bpy.types.Context | None = None) -> None:
-    """Play a warning chime when issues are detected."""
-
-    _play_sound(context, _WARNING_SOUND_PATH)
-
-
-def _disable_profiling_for_audio() -> None:
-    """Prevent profiling decorators from wrapping audio helper functions."""
-
-    for function in (
-        _report_audio_issue,
-        _get_audio_device,
-        _cleanup_finished_playback,
-        _play_sound,
-        _play_happy_sound,
-        _play_warning_sound,
-    ):
-        setattr(function, "_t4p_profile_wrapped", True)
-
-
-_disable_profiling_for_audio()
-
-
-def _get_intersecting_face_indices(bm: bmesh.types.BMesh) -> set[int]:
-    if not bm.faces:
-        return set()
-
-    bm.faces.ensure_lookup_table()
-    tree = BVHTree.FromBMesh(bm)
-    if tree is None:
-        return set()
-
-    intersection_indices: set[int] = set()
-    for index_a, index_b in tree.overlap(tree):
-        if index_a == index_b or index_b < index_a:
-            continue
-        face_a = bm.faces[index_a]
-        face_b = bm.faces[index_b]
-
-        verts_a = {vert.index for vert in face_a.verts}
-        verts_b = {vert.index for vert in face_b.verts}
-        if verts_a & verts_b:
-            continue
-
-        intersection_indices.add(index_a)
-        intersection_indices.add(index_b)
-
-    return intersection_indices
-
-
-def _select_intersecting_faces(
-    mesh: bpy.types.Mesh, bm: bmesh.types.BMesh
-) -> int:
-    """Select intersecting faces of ``bm`` in edit mode.
-
-    Returns the number of faces that were selected.
-    """
-
-    intersection_indices = _get_intersecting_face_indices(bm)
-
-    for face in bm.faces:
-        face.select_set(face.index in intersection_indices)
-
-    bmesh.update_edit_mesh(mesh)
-    return len(intersection_indices)
-
-
-def _select_intersecting_faces_on_mesh(mesh: bpy.types.Mesh) -> int:
-    """Select intersecting faces of ``mesh`` while in object mode."""
-
-    polygons = mesh.polygons
-    if polygons:
-        polygons.foreach_set("select", [False] * len(polygons))
-
-    bm = bmesh.new()
-    try:
-        bm.from_mesh(mesh)
-        intersection_indices = _get_intersecting_face_indices(bm)
-    finally:
-        bm.free()
-
-    intersection_lookup = intersection_indices
-    for polygon in mesh.polygons:
-        polygon.select = polygon.index in intersection_lookup
-
-    mesh.update()
-    return len(intersection_indices)
 
 
 def _triangulate_bmesh(bm: bmesh.types.BMesh) -> None:
@@ -277,7 +80,7 @@ def count_non_manifold_verts(bm):
     return sum((1 for v in bm.verts if v.select))
 
 
-def _get_bmesh(mesh):
+def get_bmesh(mesh):
     """get an updated bmesh from mesh and make all indexes"""
     bm = bmesh.from_edit_mesh(mesh)
     bm.edges.ensure_lookup_table()
@@ -286,7 +89,15 @@ def _get_bmesh(mesh):
     return bm
 
 
-def bmesh_check_self_intersect_object(
+def mesh_checksum_fast(obj):
+    m = obj.data
+    return hash((
+        tuple(round(c, 6) for v in m.vertices for c in v.co),
+        tuple(tuple(p.vertices) for p in m.polygons)
+    ))
+
+
+def bmesh_get_intersecting_face_indices(
     bm: bmesh.types.BMesh | None,
 ) -> MutableSequence[int]:
     """Return the indices of faces that overlap within ``bm``."""
@@ -294,37 +105,30 @@ def bmesh_check_self_intersect_object(
     if bm is None or len(bm.faces) == 0:
         return array.array("i", ())
 
-    bm_copy = bm.copy()
-    try:
-        bm_copy.faces.ensure_lookup_table()
-        tree = BVHTree.FromBMesh(bm_copy, epsilon=0.00001)
-        if tree is None:
-            return array.array("i", ())
+    bm = bm.copy()
+    tree = BVHTree.FromBMesh(bm, epsilon=0.00001)
+    if tree is None:
+        return array.array("i", ())
 
-        overlap = tree.overlap(tree)
-        if not overlap:
-            return array.array("i", ())
+    overlap = tree.overlap(tree)
+    if not overlap:
+        return array.array("i", ())
 
-        faces_error = {index for pair in overlap for index in pair}
-        return array.array("i", faces_error)
-    finally:
-        bm_copy.free()
+    faces_error = {index for pair in overlap for index in pair}
+    bm.free()
+    return array.array("i", faces_error)
 
 
-def mesh_has_self_intersections(
-    mesh: bpy.types.Mesh, bm: bmesh.types.BMesh | None = None
-) -> bool:
-    """Return ``True`` when the provided mesh contains self-intersections."""
-
-    if bm is not None:
-        return bool(bmesh_check_self_intersect_object(bm))
-
-    new_bm = bmesh.new()
-    try:
-        new_bm.from_mesh(mesh)
-        return bool(bmesh_check_self_intersect_object(new_bm))
-    finally:
-        new_bm.free()
+def select_faces(face_indices: MutableSequence[int], obj):
+    if face_indices:
+        polygons = obj.data.polygons
+        if polygons:
+            selection = [False] * len(polygons)
+            for index in face_indices:
+                if 0 <= index < len(selection):
+                    selection[index] = True
+            polygons.foreach_set("select", selection)
+            obj.data.update()
 
 
 class T4P_OT_batch_decimate(Operator):
@@ -398,6 +202,9 @@ class T4P_OT_batch_decimate(Operator):
         return {"FINISHED"}
 
 
+_disable_profiling_for_audio()
+
+
 def _iter_classes():
     from .operations.clean_non_manifold import T4P_OT_clean_non_manifold
     from .operations.filter_intersections import T4P_OT_filter_intersections
@@ -465,9 +272,6 @@ __all__ = (
     "FILTER_NON_MANIFOLD_OPERATOR_IDNAME",
     "CLEAN_NON_MANIFOLD_OPERATOR_IDNAME",
     "TRIANGULATE_OPERATOR_IDNAME",
-    "_get_intersecting_face_indices",
-    "_select_intersecting_faces",
-    "_select_intersecting_faces_on_mesh",
     "_triangulate_bmesh",
     "T4P_OT_batch_decimate",
     "T4PAddonPreferences",

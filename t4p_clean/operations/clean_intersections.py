@@ -11,16 +11,16 @@ from math import radians, degrees
 
 from mathutils import Vector
 
-import t4p_clean.main
 from ..debug import profile_module
 from ..main import (
     SMOOTH_OPERATOR_IDNAME,
-    _get_intersecting_face_indices,
-    _play_happy_sound,
-    _play_warning_sound,
-    _select_intersecting_faces,
     _triangulate_bmesh,
+    bmesh_get_intersecting_face_indices,
+    mesh_checksum_fast,
+    select_faces,
+    get_bmesh,
 )
+from ..audio import _play_happy_sound, _play_warning_sound
 
 
 def _grow_selection(times: int) -> None:
@@ -31,14 +31,6 @@ def _grow_selection(times: int) -> None:
 def _shrink_selection(times: int) -> None:
     for _ in range(times):
         bpy.ops.mesh.select_less()
-
-
-def _mesh_has_intersections(
-    mesh: bpy.types.Mesh, bm: bmesh.types.BMesh | None = None
-) -> bool:
-    """Return ``True`` when the provided mesh contains self-intersections."""
-
-    return t4p_clean.main.mesh_has_self_intersections(mesh, bm)
 
 
 def _calculate_faces_bounding_box(
@@ -222,12 +214,6 @@ def _process_intersecting_face(
     longest_edges = _collect_longest_edges(face)
     if len(longest_edges) < 2:
         return False
-    print(
-        "[T4P][smooth] Iteration "
-        f"{iteration}: sharp angle detected on face {face_index} "
-        f"({degrees(smallest_angle):.2f}\N{DEGREE SIGN}); splitting edges "
-        f"{[edge.index for edge in longest_edges]}"
-    )
     midpoint_vertices = _subdivide_edges_and_collect_midpoints(bm, longest_edges)
     return _connect_midpoints_if_possible(bm, midpoint_vertices)
 
@@ -262,16 +248,14 @@ def _collect_face_indices_with_neighbors(
 
 def _split_faces_once(
     bm: bmesh.types.BMesh,
-    iteration: int,
-    sharp_angle_threshold: float,
+    iteration: int
 ) -> bool:
-    intersection_indices = _get_intersecting_face_indices(bm)
-    print("Intersection indices", intersection_indices)
-    if not intersection_indices:
-        return False
-    bm.edges.ensure_lookup_table()
+
+    sharp_angle_threshold = radians(15.0)
+
+    face_indices = bmesh_get_intersecting_face_indices(bm)
     face_indices = _collect_face_indices_with_neighbors(
-        bm, list(intersection_indices)
+        bm, list(face_indices)
     )
     iteration_split = False
     for face_index in face_indices:
@@ -283,30 +267,9 @@ def _split_faces_once(
             continue
         if _process_intersecting_face(bm, face_index, face, iteration, sharp_angle_threshold):
             iteration_split = True
-    return iteration_split
-
-
-def _split_elongated_intersecting_faces(
-    mesh: bpy.types.Mesh,
-    bm: bmesh.types.BMesh,
-) -> bool:
-    """Split intersecting faces when they contain sharp angles."""
-
-    sharp_angle_threshold = radians(15.0)
-    max_iterations = 10
-    any_split_performed = False
-
-    for iteration in range(1, max_iterations + 1):
-        if not _split_faces_once(bm, iteration, sharp_angle_threshold):
-            break
-        any_split_performed = True
-
-    if not any_split_performed:
-        return False
-
     bm.normal_update()
-    bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
-    return True
+
+    return iteration_split
 
 
 def _get_selected_visible_face_islands(
@@ -388,22 +351,13 @@ def _try_shrink_fatten(
             bm.normal_update()
             bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
 
-        try:
-            bpy.ops.transform.shrink_fatten(value=distance_value, use_even_offset=True)
-        except RuntimeError:
-            _restore_saved_coords()
-            return False
-
-        try:
-            bpy.ops.mesh.vertices_smooth(factor=0.5, repeat=1)
-        except RuntimeError:
-            _restore_saved_coords()
-            return False
+        bpy.ops.transform.shrink_fatten(value=distance_value, use_even_offset=True)
+        bpy.ops.mesh.vertices_smooth(factor=0.5, repeat=2)
 
         bm.normal_update()
         bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
 
-        remaining = _get_intersecting_face_indices(bm)
+        remaining = bmesh_get_intersecting_face_indices(bm)
         if not (remaining & group_face_indices):
             return True
 
@@ -424,40 +378,23 @@ def _try_shrink_fatten(
     return False
 
 
-def _handle_remaining_intersections(
-    mesh: bpy.types.Mesh, bm: bmesh.types.BMesh
+def _test_shrink_fatten(
+    obj, mesh: bpy.types.Mesh, bm: bmesh.types.BMesh
 ) -> bool:
     bpy.ops.mesh.select_mode(type="FACE")
-    try:
-        bpy.ops.mesh.reveal()
-    except RuntimeError:
-        pass
 
+    face_indices = bmesh_get_intersecting_face_indices(bm)
+    select_faces(face_indices, obj)
     bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
-    bm = bmesh.from_edit_mesh(mesh)
 
-    face_count = _select_intersecting_faces(mesh, bm)
-    if face_count == 0:
-        return False
-
-    bm = bmesh.from_edit_mesh(mesh)
     _grow_selection(1)
-    bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+    get_bmesh(mesh)
 
-    try:
-        bpy.ops.mesh.hide(unselected=True)
-    except RuntimeError:
-        pass
+    bpy.ops.mesh.hide(unselected=True)
 
-    bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
     bm = bmesh.from_edit_mesh(mesh)
     islands = _get_selected_visible_face_islands(bm)
     if not islands:
-        try:
-            bpy.ops.mesh.reveal()
-        except RuntimeError:
-            pass
-        bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
         return False
 
     bounding_boxes = [_calculate_faces_bounding_box(island) for island in islands]
@@ -466,139 +403,116 @@ def _handle_remaining_intersections(
     solved_any = False
     for group in grouped_indices:
         group_faces = [face for idx in group for face in islands[idx]]
-        bm.faces.ensure_lookup_table()
-        for face in bm.faces:
-            face.select_set(False)
+        bpy.ops.mesh.select_all(action='DESELECT')
         for face in group_faces:
             if face.is_valid:
                 face.select_set(True)
-
-        bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+        bm = get_bmesh(mesh)
 
         if _try_shrink_fatten(mesh, bm, group_faces):
             solved_any = True
 
-        bm = bmesh.from_edit_mesh(mesh)
-
-    try:
-        bpy.ops.mesh.reveal()
-    except RuntimeError:
-        pass
-
-    bm = bmesh.from_edit_mesh(mesh)
-    bm.faces.ensure_lookup_table()
-    for face in bm.faces:
-        face.select_set(False)
-    bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+    bpy.ops.mesh.reveal()
+    bpy.ops.mesh.select_all(action='DESELECT')
 
     return solved_any
 
 
-def _smooth_object_intersections(
+def _clean_mesh_intersections_wrapper(obj: bpy.types.Object, max_attempts: int) -> tuple[bool, bool]:
+    checksum_before = mesh_checksum_fast(obj)
+    bpy.ops.object.mode_set(mode="EDIT")
+    clean = _clean_mesh_intersections(obj, max_attempts)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    checksum_after = mesh_checksum_fast(obj)
+    changed = checksum_before != checksum_after
+    return changed, clean
+
+
+def _clean_mesh_intersections(
     obj: bpy.types.Object, max_attempts: int
-) -> int:
+) -> bool:
     """Run the intersection smoothing workflow on a mesh object.
 
-    Returns the number of iterations that performed smoothing.
+    returns if the mesh still contains intersections.
     """
+
+    bpy.ops.mesh.reveal(select=False)
 
     mesh = obj.data
     max_attempts = max(1, max_attempts)
     if mesh is None:
-        return 0
+        return True
 
     smoothed_attempts = 0
-    subdivisions_done = 0
-    max_subdivisions = 2
 
-    try:
-        bpy.ops.object.mode_set(mode="EDIT")
-        bm = bmesh.from_edit_mesh(mesh)
+    bm = get_bmesh(mesh)
+    _triangulate_bmesh(bm)
+    bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=True)
 
-        if not _mesh_has_intersections(mesh, bm):
-            return 0
+    split = True
+    splits = 0
+    while split:
+        face_indices = bmesh_get_intersecting_face_indices(bm)
+        if not face_indices:
+            return True
 
-        if _triangulate_bmesh(bm):
-            bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
-            bm = bmesh.from_edit_mesh(mesh)
+        changed = _split_faces_once(bm, 1)
+        if changed:
+            _triangulate_bmesh(bm)
+            face_indices = bmesh_get_intersecting_face_indices(bm)
+            if not face_indices:
+                return True
+        else:
+            split = False
+        splits += 1
+        if splits >= 3:
+            split = False
 
-        while _split_elongated_intersecting_faces(mesh, bm):
-            if _triangulate_bmesh(bm):
-                bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
-            bm = bmesh.from_edit_mesh(mesh)
-
-            if not _mesh_has_intersections(mesh, bm):
-                return 0
-
-        if not _mesh_has_intersections(mesh, bm):
-            return 0
-
+    for iteration in range(1, max_attempts + 1):
         bpy.ops.mesh.select_mode(type="FACE")
+        bm = get_bmesh(mesh)
+        face_indices = bmesh_get_intersecting_face_indices(bm)
+        if len(face_indices) == 0:
+            return True
 
-        for iteration in range(1, max_attempts + 1):
-            face_count = _select_intersecting_faces(mesh, bm)
-            if face_count == 0:
-                break
+        select_faces(face_indices, obj)
+        if iteration > 2:
+            _grow_selection(3)
+        else:
+            _grow_selection(2)
+        _shrink_selection(1)
+        if iteration > 2:
+            bpy.ops.mesh.vertices_smooth(factor=0.5, repeat=3)
+        else:
+            bpy.ops.mesh.vertices_smooth(factor=0.5, repeat=2)
 
-            growth_steps = 2 + subdivisions_done
-            _grow_selection(growth_steps)
-            _shrink_selection(1)
-            bpy.ops.mesh.vertices_smooth(factor=0.5, repeat=iteration)
-            smoothed_attempts += 1
+    bm = get_bmesh(mesh)
+    face_indices = bmesh_get_intersecting_face_indices(bm)
+    if len(face_indices) == 0:
+        return True
 
-            bmesh.update_edit_mesh(mesh)
-            bm = bmesh.from_edit_mesh(mesh)
+    #_test_shrink_fatten(obj, mesh, bm)
 
-            if not _mesh_has_intersections(mesh, bm):
-                return smoothed_attempts
-
-            bpy.ops.mesh.select_mode(type="FACE")
-
-        if _mesh_has_intersections(mesh, bm):
-            if _handle_remaining_intersections(mesh, bm):
-                bm = bmesh.from_edit_mesh(mesh)
-                if not _mesh_has_intersections(mesh, bm):
-                    return smoothed_attempts
-            else:
-                bm = bmesh.from_edit_mesh(mesh)
-    finally:
-        bpy.ops.object.mode_set(mode="OBJECT")
-
-    if not _mesh_has_intersections(mesh):
-        return smoothed_attempts
-
-    return smoothed_attempts
-
-
-def _smooth_object_intersections_in_edit_mode(
-    obj: bpy.types.Object, max_attempts: int
-) -> int:
-    """Run the smoothing workflow while temporarily entering edit mode."""
-
-    bpy.ops.object.mode_set(mode="EDIT")
-    try:
-        return _smooth_object_intersections(obj, max_attempts)
-    finally:
-        bpy.ops.object.mode_set(mode="OBJECT")
+    bm = get_bmesh(mesh)
+    face_indices = bmesh_get_intersecting_face_indices(bm)
+    return len(face_indices) == 0
 
 
 class T4P_OT_smooth_intersections(Operator):
     """Smooth intersecting faces across selected mesh objects."""
 
     bl_idname = SMOOTH_OPERATOR_IDNAME
-    bl_label = "Smooth Intersections"
-    bl_description = "Smooth intersecting faces for selected mesh objects"
+    bl_label = "Clean Intersections"
+    bl_description = "Clean intersecting faces for selected mesh objects"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         if context.mode != "OBJECT":
-            self.report({"ERROR"}, "Switch to Object mode to smooth intersections.")
+            self.report({"ERROR"}, "Switch to Object mode to clean intersections.")
             return {"CANCELLED"}
 
         initial_active = context.view_layer.objects.active
         initial_selection = list(context.selected_objects)
-
-        bpy.ops.object.select_all(action="DESELECT")
 
         smoothed_objects: List[str] = []
         scene = context.scene
@@ -617,17 +531,10 @@ class T4P_OT_smooth_intersections(Operator):
             if context.view_layer.objects.get(obj.name) is None:
                 continue
 
-            obj.select_set(True)
             context.view_layer.objects.active = obj
-
-            try:
-                attempts = _smooth_object_intersections_in_edit_mode(
-                    obj, attempt_limit
-                )
-            except RuntimeError:
-                attempts = 0
-            finally:
-                obj.select_set(False)
+            obj.select_set(True)
+            attempts = _clean_mesh_intersections_wrapper(obj, attempt_limit)
+            obj.select_set(False)
 
             if attempts:
                 smoothed_objects.append(obj.name)
@@ -655,7 +562,7 @@ class T4P_OT_smooth_intersections(Operator):
             try:
                 bm_for_check = bmesh.new()
                 bm_for_check.from_mesh(obj.data)
-                if t4p_clean.main.bmesh_check_self_intersect_object(bm_for_check):
+                if bmesh_get_intersecting_face_indices(bm_for_check):
                     remaining_intersections = True
                     break
             except RuntimeError:

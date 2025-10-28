@@ -8,14 +8,13 @@ import bmesh
 import bpy
 from bpy.types import Operator
 
-import t4p_clean.main
 from ..debug import profile_module
 from ..main import (
     FILTER_OPERATOR_IDNAME,
-    _play_happy_sound,
-    _play_warning_sound,
-    _get_bmesh
+    bmesh_get_intersecting_face_indices,
+    select_faces
 )
+from ..audio import _play_happy_sound, _play_warning_sound
 
 
 class T4P_OT_filter_intersections(Operator):
@@ -46,20 +45,14 @@ class T4P_OT_filter_intersections(Operator):
             face_indices = array.array("i", ())
             if obj.type == "MESH" and obj.data is not None:
                 mesh_candidates += 1
-                mesh = obj.data
-                bm = _get_bmesh(mesh)
+                bm = bmesh.new()
+                bm.from_mesh(obj.data)
+                bm.verts.ensure_lookup_table()
+                bm.faces.ensure_lookup_table()
+                bm.edges.ensure_lookup_table()
 
-                face_indices = t4p_clean.main.bmesh_check_self_intersect_object(bm)
-
-                if face_indices:
-                    polygons = obj.data.polygons
-                    if polygons:
-                        selection = [False] * len(polygons)
-                        for index in face_indices:
-                            if 0 <= index < len(selection):
-                                selection[index] = True
-                        polygons.foreach_set("select", selection)
-                        obj.data.update()
+                face_indices = bmesh_get_intersecting_face_indices(bm)
+                select_faces(face_indices, obj)
 
             has_intersections = bool(face_indices)
             obj.select_set(has_intersections)
@@ -82,7 +75,7 @@ class T4P_OT_filter_intersections(Operator):
                 self.report({"INFO"}, "No self-intersections detected on selected objects.")
                 _play_happy_sound(context)
         else:
-            self.report({"INFO"}, "{} objects of {} with self-intersections.".format(len()))
+            self.report({"INFO"}, "{} objects of {} with self-intersections.".format(len(objects_with_intersections), mesh_candidates))
             _play_warning_sound(context)
 
         return {"FINISHED"}

@@ -26,7 +26,7 @@ class T4P_OT_triangulate_selected(Operator):
         initial_active = context.view_layer.objects.active
 
         selected_objects = list(context.selected_objects)
-        triangulated_objects = []
+        triangulated_objects = 0
         mesh_candidates = 0
 
         for obj in selected_objects:
@@ -35,22 +35,19 @@ class T4P_OT_triangulate_selected(Operator):
 
             mesh = obj.data
             mesh_candidates += 1
-            changed = False
-            try:
-                bm = bmesh.new()
-                try:
-                    bm.from_mesh(mesh)
-                    if _triangulate_bmesh(bm):
-                        bm.to_mesh(mesh)
-                        mesh.update()
-                        changed = True
-                finally:
-                    bm.free()
-            except RuntimeError:
-                changed = False
 
-            if changed:
-                triangulated_objects.append(obj.name)
+            bm = bmesh.new()
+            bm.from_mesh(mesh)
+            bm.faces.ensure_lookup_table()
+            num_faces = len(bm.faces)
+            _triangulate_bmesh(bm)
+            bm.to_mesh(mesh)
+            mesh.update()
+
+            if len(bm.faces) > num_faces:
+                triangulated_objects += 1
+
+            bm.free()
 
         if initial_active and context.scene.objects.get(initial_active.name) is not None:
             context.view_layer.objects.active = initial_active
@@ -64,9 +61,7 @@ class T4P_OT_triangulate_selected(Operator):
         else:
             self.report(
                 {"INFO"},
-                "Triangulated: {}".format(
-                    ", ".join(triangulated_objects)
-                ),
+                "Triangulated: {}".format(triangulated_objects),
             )
 
         return {"FINISHED"}

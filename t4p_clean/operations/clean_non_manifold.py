@@ -9,10 +9,9 @@ from bpy.types import Operator
 from ..debug import profile_module
 from ..main import (
     CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
-    _play_happy_sound,
-    _play_warning_sound,
-    _triangulate_bmesh, select_non_manifold_verts, count_non_manifold_verts, _get_bmesh,
+    _triangulate_bmesh, select_non_manifold_verts, count_non_manifold_verts, get_bmesh, mesh_checksum_fast,
 )
+from ..audio import _play_happy_sound, _play_warning_sound
 
 
 def _clean_object_non_manifold(
@@ -31,7 +30,7 @@ def _clean_object_non_manifold(
     bpy.ops.mesh.select_all(action="SELECT")
     bpy.ops.mesh.reveal()
 
-    bm = _get_bmesh(mesh)
+    bm = get_bmesh(mesh)
     _triangulate_bmesh(bm)
     num_errors_before = count_non_manifold_verts(bm)
     bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=True)
@@ -40,7 +39,7 @@ def _clean_object_non_manifold(
     _delete_interior_faces()
     _fill_holes()
 
-    bm = _get_bmesh(mesh)
+    bm = get_bmesh(mesh)
     _delete_small_vertex_islands(bm, min_vertices=delete_island_threshold)
     _dissolve_degenerate_and_triangulate(bm, threshold=merge_distance)
     bm.normal_update()
@@ -50,7 +49,7 @@ def _clean_object_non_manifold(
     _make_manifold(mesh)
     _unify_normals()
 
-    bm = _get_bmesh(mesh)
+    bm = get_bmesh(mesh)
     num_errors_after = count_non_manifold_verts(bm)
     clean = num_errors_after == 0
     worse = num_errors_after > num_errors_before
@@ -65,14 +64,6 @@ def _clean_object_non_manifold(
     return changed, clean, worse
 
 
-def mesh_checksum_fast(obj):
-    m = obj.data
-    return hash((
-        tuple(round(c, 6) for v in m.vertices for c in v.co),
-        tuple(tuple(p.vertices) for p in m.polygons)
-    ))
-
-
 def _unify_normals():
     """have all normals face outwards"""
     bpy.ops.mesh.select_all(action="SELECT")
@@ -85,12 +76,12 @@ def _remove_doubles(merge_distance):
 
 
 def _make_manifold(mesh):
-    bm = _get_bmesh(mesh)
+    bm = get_bmesh(mesh)
     fix_non_manifold = count_non_manifold_verts(bm) > 0
     num_faces = len(bm.faces)
     while fix_non_manifold:
         _try_fix_manifold()
-        bm = _get_bmesh(mesh)
+        bm = get_bmesh(mesh)
         new_num_faces = len(bm.faces)
         if new_num_faces == num_faces:
             fix_non_manifold = False
