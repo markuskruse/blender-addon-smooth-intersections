@@ -133,7 +133,6 @@ class T4P_OT_focus_non_manifold(Operator):
             first_face = [selected_verts[0].link_faces[0].index]
             select_faces(first_face, mesh, bm)
         else:
-            set_object_analysis_stats(editable_object, non_manifold_count=0)
             self.report({"INFO"}, "No non manifold geometry were found.")
             return {"CANCELLED"}
 
@@ -149,11 +148,6 @@ class T4P_OT_focus_non_manifold(Operator):
             use_non_contiguous=True,
             use_verts=True,
         )
-
-        bm = get_bmesh(mesh)
-        refreshed_count = len(get_selected_verts(bm))
-        set_object_analysis_stats(editable_object, non_manifold_count=refreshed_count)
-        bmesh.update_edit_mesh(mesh)
 
         return {"FINISHED"}
 
