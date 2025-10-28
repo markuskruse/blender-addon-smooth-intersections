@@ -11,6 +11,7 @@ from .main import (
     FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
     FILTER_OPERATOR_IDNAME,
     SMOOTH_OPERATOR_IDNAME,
+    SPLIT_LONG_FACES_OPERATOR_IDNAME,
     TRIANGULATE_OPERATOR_IDNAME,
 )
 
@@ -75,17 +76,24 @@ class T4P_PT_main_panel(Panel):
         )
 
         controls_col.label(text="Decimate")
-        ratio_row = controls_col.row(align=True)
-        if scene is not None and hasattr(scene, "t4p_batch_decimate_ratio"):
-            ratio_col = ratio_row.row(align=True)
-            ratio_col.prop(scene, "t4p_batch_decimate_ratio", text="", slider=False)
-        else:
-            ratio_col = ratio_row.row(align=True)
-            ratio_col.label(text="Ratio: 0.50")
+        decimate_col = controls_col.column(align=True)
 
-        button_col = ratio_row.row(align=True)
-        button_col.enabled = is_object_mode and has_selection
-        button_col.operator(
+        ratio_row = decimate_col.row(align=True)
+        if scene is not None and hasattr(scene, "t4p_batch_decimate_ratio"):
+            ratio_row.prop(scene, "t4p_batch_decimate_ratio", text="", slider=False)
+        else:
+            ratio_row.label(text="Ratio: 0.50")
+
+        split_row = decimate_col.row(align=True)
+        split_row.enabled = context.mode == "EDIT_MESH"
+        split_row.operator(
+            SPLIT_LONG_FACES_OPERATOR_IDNAME,
+            text="Split long faces",
+        )
+
+        button_row = decimate_col.row(align=True)
+        button_row.enabled = is_object_mode and has_selection
+        button_row.operator(
             BATCH_DECIMATE_OPERATOR_IDNAME,
             text="Batch decimate",
         )
