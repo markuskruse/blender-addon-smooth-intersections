@@ -81,6 +81,24 @@ def count_non_manifold_verts(bm):
     return sum((1 for v in bm.verts if v.select))
 
 
+def set_object_analysis_stats(
+    obj: bpy.types.Object | None,
+    *,
+    non_manifold_count: int | None = None,
+    intersection_count: int | None = None,
+) -> None:
+    """Store the latest analysis counts on ``obj`` when available."""
+
+    if obj is None:
+        return
+
+    if non_manifold_count is not None:
+        obj["t4p_non_manifold_count"] = int(non_manifold_count)
+
+    if intersection_count is not None:
+        obj["t4p_self_intersection_count"] = int(intersection_count)
+
+
 def get_bmesh(mesh):
     """get an updated bmesh from mesh and make all indexes"""
     bm = bmesh.from_edit_mesh(mesh)
@@ -258,4 +276,5 @@ __all__ = (
     "SPLIT_LONG_FACES_OPERATOR_IDNAME",
     "_triangulate_bmesh",
     "T4PAddonPreferences",
+    "set_object_analysis_stats",
 )

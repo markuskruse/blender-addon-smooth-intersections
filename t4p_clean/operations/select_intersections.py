@@ -13,7 +13,8 @@ from ..main import (
     SELECT_INTERSECTIONS_OPERATOR_IDNAME,
     bmesh_get_intersecting_face_indices,
     focus_view_on_selected_faces,
-    select_faces
+    select_faces,
+    set_object_analysis_stats,
 )
 
 
@@ -53,6 +54,8 @@ class T4P_OT_select_intersections(Operator):
         bm.faces.ensure_lookup_table()
 
         face_indices = list(bmesh_get_intersecting_face_indices(bm))
+        intersection_count = len(face_indices)
+        set_object_analysis_stats(editable_object, intersection_count=intersection_count)
 
         if not face_indices:
             bmesh.update_edit_mesh(mesh)
@@ -96,6 +99,9 @@ class T4P_OT_focus_intersections(Operator):
         bm.faces.ensure_lookup_table()
 
         face_indices = list(bmesh_get_intersecting_face_indices(bm))
+        intersection_count = len(face_indices)
+        set_object_analysis_stats(editable_object, intersection_count=intersection_count)
+
         if not face_indices:
             self.report({"INFO"}, "No intersecting faces detected.")
             return {"CANCELLED"}

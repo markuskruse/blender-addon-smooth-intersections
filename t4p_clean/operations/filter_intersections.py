@@ -12,7 +12,8 @@ from ..debug import profile_module
 from ..main import (
     FILTER_OPERATOR_IDNAME,
     bmesh_get_intersecting_face_indices,
-    select_faces
+    select_faces,
+    set_object_analysis_stats,
 )
 from ..audio import _play_happy_sound, _play_warning_sound
 
@@ -56,8 +57,10 @@ class T4P_OT_filter_intersections(Operator):
                 bm.edges.ensure_lookup_table()
 
                 face_indices = bmesh_get_intersecting_face_indices(bm)
+                intersection_count = len(face_indices)
                 bpy.ops.object.mode_set(mode="OBJECT")
                 obj.select_set(False)
+                set_object_analysis_stats(obj, intersection_count=intersection_count)
 
             if bool(face_indices):
                 objects_with_intersections.append(obj)
