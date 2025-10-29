@@ -81,6 +81,19 @@ def count_non_manifold_verts(bm):
     return sum((1 for v in bm.verts if v.select))
 
 
+def calculate_object_mesh_checksum(obj: bpy.types.Object | None) -> int | None:
+    """Return a checksum for the mesh data on ``obj`` if possible."""
+
+    if obj is None or obj.type != "MESH":
+        return None
+
+    mesh = getattr(obj, "data", None)
+    if mesh is None or not hasattr(mesh, "vertices") or not hasattr(mesh, "polygons"):
+        return None
+
+    return mesh_checksum_fast(obj)
+
+
 def set_object_analysis_stats(
     obj: bpy.types.Object | None,
     *,
@@ -92,11 +105,20 @@ def set_object_analysis_stats(
     if obj is None:
         return
 
-    if non_manifold_count is not None:
-        obj["t4p_non_manifold_count"] = int(non_manifold_count)
+    should_update_non_manifold = non_manifold_count is not None
+    should_update_intersections = intersection_count is not None
+    checksum: int | None = None
 
-    if intersection_count is not None:
+    if should_update_non_manifold or should_update_intersections:
+        checksum = calculate_object_mesh_checksum(obj)
+
+    if should_update_non_manifold:
+        obj["t4p_non_manifold_count"] = int(non_manifold_count)
+        obj["t4p_non_manifold_checksum"] = int(checksum) if checksum is not None else 0
+
+    if should_update_intersections:
         obj["t4p_self_intersection_count"] = int(intersection_count)
+        obj["t4p_self_intersection_checksum"] = int(checksum) if checksum is not None else 0
 
 
 def get_bmesh(mesh):

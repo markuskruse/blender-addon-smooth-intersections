@@ -5,15 +5,17 @@ from __future__ import annotations
 from bpy.types import Panel
 
 
-def _get_active_object_analysis_stats(context) -> tuple[int, int, bool]:
+def _get_active_object_analysis_stats(context) -> tuple[str, str, bool]:
     """Return analysis stats for the active object, if present."""
 
     active_object = getattr(context, "active_object", None)
     if active_object is None:
-        return 0, 0, False
+        return "0", "0", False
 
     non_manifold_value = active_object.get("t4p_non_manifold_count")
     intersection_value = active_object.get("t4p_self_intersection_count")
+    non_manifold_checksum = active_object.get("t4p_non_manifold_checksum")
+    intersection_checksum = active_object.get("t4p_self_intersection_checksum")
 
     has_non_manifold = non_manifold_value is not None
     has_intersections = intersection_value is not None
@@ -22,22 +24,38 @@ def _get_active_object_analysis_stats(context) -> tuple[int, int, bool]:
     non_manifold_count = int(non_manifold_value) if has_non_manifold else 0
     intersection_count = int(intersection_value) if has_intersections else 0
 
-    return non_manifold_count, intersection_count, has_stats
+    current_checksum = calculate_object_mesh_checksum(active_object)
+
+    def _format_stat(count: int, stored_checksum) -> str:
+        text = str(count)
+        if (
+            stored_checksum is not None
+            and current_checksum is not None
+            and int(stored_checksum) != int(current_checksum)
+        ):
+            text = f"{text}??"
+        return text
+
+    non_manifold_display = _format_stat(non_manifold_count, non_manifold_checksum)
+    intersection_display = _format_stat(intersection_count, intersection_checksum)
+
+    return non_manifold_display, intersection_display, has_stats
 
 
-def _draw_analysis_stat(layout, label_text: str, value: int) -> None:
+def _draw_analysis_stat(layout, label_text: str, value: str) -> None:
     """Draw a row showing a single analysis value."""
 
     row = layout.row(align=True)
     row.label(text=label_text)
     value_row = row.row(align=True)
     value_row.alignment = "RIGHT"
-    value_row.label(text=str(value))
+    value_row.label(text=value)
 
 from .debug import profile_module
 from .main import (
     ANALYZE_OPERATOR_IDNAME,
     BATCH_DECIMATE_OPERATOR_IDNAME,
+    calculate_object_mesh_checksum,
     CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
     FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
     FILTER_OPERATOR_IDNAME,
