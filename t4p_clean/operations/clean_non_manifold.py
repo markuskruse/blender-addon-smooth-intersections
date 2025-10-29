@@ -6,6 +6,7 @@ import bmesh
 import bpy
 from bpy.types import Operator
 
+from ..audio import _play_happy_sound, _play_warning_sound
 from ..debug import profile_module
 from ..main import (
     CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
@@ -14,10 +15,8 @@ from ..main import (
     get_bmesh,
     mesh_checksum_fast,
     select_non_manifold_verts,
-    update_window_manager_progress,
-    window_manager_progress,
 )
-from ..audio import _play_happy_sound, _play_warning_sound
+from .modal_utils import ModalTimerMixin
 
 
 def _clean_object_non_manifold(
@@ -256,7 +255,7 @@ def get_bmesh_islands(bm: bmesh.types.BMesh):
     return islands
 
 
-class T4P_OT_clean_non_manifold(Operator):
+class T4P_OT_clean_non_manifold(ModalTimerMixin, Operator):
     """Clean up non-manifold geometry across selected mesh objects."""
 
     bl_idname = CLEAN_NON_MANIFOLD_OPERATOR_IDNAME
@@ -264,75 +263,162 @@ class T4P_OT_clean_non_manifold(Operator):
     bl_description = "Remove small islands, loose elements, and holes on selected meshes"
     bl_options = {"REGISTER", "UNDO"}
 
-    def execute(self, context):
+    def __init__(self) -> None:
+        self._objects_to_process: list[bpy.types.Object] = []
+        self._current_index = 0
+        self._initial_active: bpy.types.Object | None = None
+        self._initial_selection: list[bpy.types.Object] = []
+        self._scene: bpy.types.Scene | None = None
+        self._num_candidates = 0
+        self._num_fine = 0
+        self._num_failed = 0
+        self._num_fixed = 0
+        self._num_worse = 0
+
+    def invoke(self, context: bpy.types.Context, event: bpy.types.Event):
+        return self._begin(context)
+
+    def execute(self, context: bpy.types.Context):
+        return self._begin(context)
+
+    def modal(self, context: bpy.types.Context, event: bpy.types.Event):
+        if event.type == "ESC":
+            return self._finish_modal(context, cancelled=True)
+
+        if event.type != "TIMER":
+            return {"RUNNING_MODAL"}
+
+        if self._current_index >= len(self._objects_to_process):
+            return self._finish_modal(context, cancelled=False)
+
+        obj = self._objects_to_process[self._current_index]
+        self._process_object(context, obj)
+        self._current_index += 1
+        self._update_modal_progress(self._current_index)
+        return {"RUNNING_MODAL"}
+
+    def _begin(self, context: bpy.types.Context):
+        self._reset_state()
         if context.mode != "OBJECT":
             self.report({"ERROR"}, "Switch to Object mode to clean non-manifold meshes.")
             return {"CANCELLED"}
 
-        selected_objects = list(context.selected_objects)
-        if not selected_objects:
+        self._initial_selection = list(context.selected_objects)
+        if not self._initial_selection:
             self.report({"INFO"}, "No objects selected.")
             return {"FINISHED"}
 
-        bpy.ops.object.select_all(action='DESELECT')
-
-        initial_active = context.view_layer.objects.active
-        scene = context.scene
-        candidate_objects = [
+        self._initial_active = context.view_layer.objects.active
+        self._scene = context.scene
+        self._objects_to_process = [
             obj
-            for obj in selected_objects
+            for obj in self._initial_selection
             if obj.type == "MESH"
             and obj.data is not None
-            and (scene is None or scene.objects.get(obj.name) is not None)
+            and (
+                self._scene is None
+                or self._scene.objects.get(obj.name) is not None
+            )
         ]
-        num_candidates = len(candidate_objects)
-        num_fine = 0
-        num_failed = 0
-        num_fixed = 0
-        num_worse = 0
+        self._num_candidates = len(self._objects_to_process)
 
-        with window_manager_progress(context, num_candidates) as progress:
-            for index, obj in enumerate(candidate_objects):
-                update_window_manager_progress(progress, index)
+        bpy.ops.object.select_all(action="DESELECT")
 
-                context.view_layer.objects.active = obj
-                obj.select_set(True)
-                changed, clean, worse = _clean_object_non_manifold(obj, 0.001, 100)
+        if not self._objects_to_process:
+            return self._finish_modal(context, cancelled=False)
 
-                if clean and not changed:
-                    num_fine += 1
-                elif clean and changed:
-                    num_fixed += 1
-                elif not clean and changed:
-                    num_failed += 1
-                if worse:
-                    num_worse += 1
+        return self._start_modal(context, self._num_candidates)
 
-        if initial_active and (
-                scene is None
-                or scene.objects.get(initial_active.name) is not None
-        ):
-            context.view_layer.objects.active = initial_active
-        elif initial_active is None:
+    def _reset_state(self) -> None:
+        self._objects_to_process = []
+        self._current_index = 0
+        self._initial_active = None
+        self._initial_selection = []
+        self._scene = None
+        self._num_candidates = 0
+        self._num_fine = 0
+        self._num_failed = 0
+        self._num_fixed = 0
+        self._num_worse = 0
+
+    def _process_object(self, context: bpy.types.Context, obj: bpy.types.Object) -> None:
+        if self._scene is not None and self._scene.objects.get(obj.name) is None:
+            return
+
+        context.view_layer.objects.active = obj
+        obj.select_set(True)
+
+        changed, clean, worse = _clean_object_non_manifold(obj, 0.001, 100)
+
+        if clean and not changed:
+            self._num_fine += 1
+        elif clean and changed:
+            self._num_fixed += 1
+        elif not clean and changed:
+            self._num_failed += 1
+        if worse:
+            self._num_worse += 1
+
+    def _finish_modal(self, context: bpy.types.Context, *, cancelled: bool) -> set[str]:
+        self._stop_modal(context)
+
+        if cancelled:
+            self._restore_initial_selection(context)
+            self.report(
+                {"WARNING"},
+                "Non-manifold cleaning cancelled before completion.",
+            )
+            _play_warning_sound(context)
+            return {"CANCELLED"}
+
+        self._restore_active_object(context)
+        self._report_results(context)
+        return {"FINISHED"}
+
+    def _restore_initial_selection(self, context: bpy.types.Context) -> None:
+        bpy.ops.object.select_all(action="DESELECT")
+        if not self._initial_selection:
             context.view_layer.objects.active = None
+            return
+
+        scene = self._scene
+        for obj in self._initial_selection:
+            if scene is not None and scene.objects.get(obj.name) is None:
+                continue
+            obj.select_set(True)
+
+        self._restore_active_object(context)
+
+    def _restore_active_object(self, context: bpy.types.Context) -> None:
+        scene = self._scene
+        if (
+            self._initial_active
+            and (scene is None or scene.objects.get(self._initial_active.name) is not None)
+        ):
+            context.view_layer.objects.active = self._initial_active
         else:
             context.view_layer.objects.active = None
 
-        if num_candidates == 0:
+    def _report_results(self, context: bpy.types.Context) -> None:
+        if self._num_candidates == 0:
             self.report({"INFO"}, "No mesh objects selected.")
-        elif num_failed == 0 and num_fixed > 0 and num_worse == 0:
-            self.report({"INFO"}, "Fixed all on {} objects".format(num_fixed))
-        elif num_fixed > 0 or num_failed > 0 and num_worse == 0:
-            self.report({"WARNING"}, "Cleaned {} objects, {} clean".format(num_candidates, num_fixed))
-        elif num_worse > 0:
-            self.report({"ERROR"}, "Cleaned {} objects, but {} is worse".format(num_candidates, num_worse))
+        elif self._num_failed == 0 and self._num_fixed > 0 and self._num_worse == 0:
+            self.report({"INFO"}, f"Fixed all on {self._num_fixed} objects")
+        elif self._num_fixed > 0 or (self._num_failed > 0 and self._num_worse == 0):
+            self.report(
+                {"WARNING"},
+                f"Cleaned {self._num_candidates} objects, {self._num_fixed} clean",
+            )
+        elif self._num_worse > 0:
+            self.report(
+                {"ERROR"},
+                f"Cleaned {self._num_candidates} objects, but {self._num_worse} is worse",
+            )
 
-        if num_failed > 0 or num_worse > 0:
+        if self._num_failed > 0 or self._num_worse > 0:
             _play_warning_sound(context)
         else:
             _play_happy_sound(context)
-
-        return {"FINISHED"}
 
 
 profile_module(globals())

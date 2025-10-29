@@ -10,6 +10,7 @@ from bpy.types import Operator
 
 from mathutils import Vector
 
+from ..audio import _play_happy_sound, _play_warning_sound
 from ..debug import profile_module
 from ..main import (
     SMOOTH_OPERATOR_IDNAME,
@@ -18,11 +19,9 @@ from ..main import (
     get_bmesh,
     mesh_checksum_fast,
     select_faces,
-    update_window_manager_progress,
-    window_manager_progress,
 )
-from ..audio import _play_happy_sound, _play_warning_sound
 from ..split_long import split_intersections
+from .modal_utils import ModalTimerMixin
 
 
 def _grow_selection(times: int) -> None:
@@ -294,7 +293,7 @@ def _clean_mesh_intersections(
     return len(face_indices) == 0
 
 
-class T4P_OT_smooth_intersections(Operator):
+class T4P_OT_smooth_intersections(ModalTimerMixin, Operator):
     """Smooth intersecting faces across selected mesh objects."""
 
     bl_idname = SMOOTH_OPERATOR_IDNAME
@@ -302,65 +301,154 @@ class T4P_OT_smooth_intersections(Operator):
     bl_description = "Clean intersecting faces for selected mesh objects"
     bl_options = {"REGISTER", "UNDO"}
 
-    def execute(self, context):
+    def __init__(self) -> None:
+        self._objects_to_process: List[bpy.types.Object] = []
+        self._current_index = 0
+        self._initial_active: bpy.types.Object | None = None
+        self._initial_selection: list[bpy.types.Object] = []
+        self._smoothed_objects: list[str] = []
+        self._attempt_limit = 1
+        self._scene: bpy.types.Scene | None = None
+
+    def invoke(self, context: bpy.types.Context, event: bpy.types.Event):
+        return self._begin(context)
+
+    def execute(self, context: bpy.types.Context):
+        return self._begin(context)
+
+    def modal(self, context: bpy.types.Context, event: bpy.types.Event):
+        if event.type == "ESC":
+            return self._finish_modal(context, cancelled=True)
+
+        if event.type != "TIMER":
+            return {"RUNNING_MODAL"}
+
+        if self._current_index >= len(self._objects_to_process):
+            return self._finish_modal(context, cancelled=False)
+
+        obj = self._objects_to_process[self._current_index]
+        self._process_object(context, obj)
+        self._current_index += 1
+        self._update_modal_progress(self._current_index)
+        return {"RUNNING_MODAL"}
+
+    def _begin(self, context: bpy.types.Context):
+        self._reset_state()
         if context.mode != "OBJECT":
             self.report({"ERROR"}, "Switch to Object mode to clean intersections.")
             return {"CANCELLED"}
 
-        initial_active = context.view_layer.objects.active
-        initial_selection = list(context.selected_objects)
+        self._initial_active = context.view_layer.objects.active
+        self._initial_selection = list(context.selected_objects)
+        if not self._initial_selection:
+            self.report({"INFO"}, "No objects selected.")
+            return {"FINISHED"}
 
-        bpy.ops.object.select_all(action='DESELECT')
+        self._scene = context.scene
+        self._attempt_limit = self._resolve_attempt_limit()
+        self._objects_to_process = self._collect_candidates(context)
 
-        smoothed_objects: List[str] = []
-        scene = context.scene
+        bpy.ops.object.select_all(action="DESELECT")
+
+        if not self._objects_to_process:
+            return self._finish_modal(context, cancelled=False)
+
+        return self._start_modal(context, len(self._objects_to_process))
+
+    def _reset_state(self) -> None:
+        self._objects_to_process = []
+        self._current_index = 0
+        self._initial_active = None
+        self._initial_selection = []
+        self._smoothed_objects = []
+        self._attempt_limit = 1
+        self._scene = None
+
+    def _resolve_attempt_limit(self) -> int:
+        scene = self._scene
         attempt_limit = 5
         if scene is not None:
             try:
                 attempt_limit = int(getattr(scene, "t4p_smooth_intersection_attempts", 5))
             except (TypeError, ValueError):
                 attempt_limit = 5
-            attempt_limit = max(1, attempt_limit)
+        return max(1, attempt_limit)
 
-        candidate_objects = [
-            obj
-            for obj in initial_selection
-            if obj.type == "MESH"
-            and obj.data is not None
-            and context.view_layer.objects.get(obj.name) is not None
-        ]
-
-        total_candidates = len(candidate_objects)
-
-        with window_manager_progress(context, total_candidates) as progress:
-            for index, obj in enumerate(candidate_objects):
-                update_window_manager_progress(progress, index)
-
-                context.view_layer.objects.active = obj
-                obj.select_set(True)
-                attempts = _clean_mesh_intersections_wrapper(obj, attempt_limit)
-                obj.select_set(False)
-
-                if attempts:
-                    smoothed_objects.append(obj.name)
-
-        bpy.ops.object.select_all(action="DESELECT")
-
-        for obj in initial_selection:
-            if context.scene.objects.get(obj.name) is not None:
-                obj.select_set(True)
-
-        if initial_active and context.scene.objects.get(initial_active.name) is not None:
-            context.view_layer.objects.active = initial_active
-        elif initial_active is None:
-            context.view_layer.objects.active = None
-
-        remaining_intersections = False
-        scene_for_check = context.scene
-        for obj in initial_selection:
+    def _collect_candidates(self, context: bpy.types.Context) -> list[bpy.types.Object]:
+        view_layer_objects = getattr(context.view_layer, "objects", None)
+        candidates: list[bpy.types.Object] = []
+        for obj in self._initial_selection:
             if obj.type != "MESH" or obj.data is None:
                 continue
-            if scene_for_check is not None and scene_for_check.objects.get(obj.name) is None:
+            if view_layer_objects is not None and view_layer_objects.get(obj.name) is None:
+                continue
+            candidates.append(obj)
+        return candidates
+
+    def _process_object(self, context: bpy.types.Context, obj: bpy.types.Object) -> None:
+        if self._scene is not None and self._scene.objects.get(obj.name) is None:
+            return
+
+        context.view_layer.objects.active = obj
+        obj.select_set(True)
+        attempts = _clean_mesh_intersections_wrapper(obj, self._attempt_limit)
+        obj.select_set(False)
+
+        if attempts:
+            self._smoothed_objects.append(obj.name)
+
+    def _finish_modal(self, context: bpy.types.Context, *, cancelled: bool) -> set[str]:
+        self._stop_modal(context)
+
+        self._restore_initial_selection(context)
+
+        if cancelled:
+            self.report(
+                {"WARNING"},
+                "Intersection cleaning cancelled before completion.",
+            )
+            _play_warning_sound(context)
+            return {"CANCELLED"}
+
+        remaining_intersections = self._has_remaining_intersections()
+
+        if remaining_intersections:
+            _play_warning_sound(context)
+        else:
+            _play_happy_sound(context)
+
+        if not self._smoothed_objects:
+            self.report({"INFO"}, "No intersecting faces were found.")
+        else:
+            object_list = ", ".join(self._smoothed_objects)
+            self.report({"INFO"}, f"Smoothed intersections on: {object_list}")
+
+        return {"FINISHED"}
+
+    def _restore_initial_selection(self, context: bpy.types.Context) -> None:
+        bpy.ops.object.select_all(action="DESELECT")
+
+        scene = context.scene
+        for obj in self._initial_selection:
+            if scene is not None and scene.objects.get(obj.name) is None:
+                continue
+            obj.select_set(True)
+
+        if (
+            self._initial_active
+            and scene is not None
+            and scene.objects.get(self._initial_active.name) is not None
+        ):
+            context.view_layer.objects.active = self._initial_active
+        else:
+            context.view_layer.objects.active = None
+
+    def _has_remaining_intersections(self) -> bool:
+        scene = self._scene
+        for obj in self._initial_selection:
+            if obj.type != "MESH" or obj.data is None:
+                continue
+            if scene is not None and scene.objects.get(obj.name) is None:
                 continue
 
             bm_for_check = None
@@ -368,30 +456,14 @@ class T4P_OT_smooth_intersections(Operator):
                 bm_for_check = bmesh.new()
                 bm_for_check.from_mesh(obj.data)
                 if bmesh_get_intersecting_face_indices(bm_for_check):
-                    remaining_intersections = True
-                    break
+                    return True
             except RuntimeError:
                 continue
             finally:
                 if bm_for_check is not None:
                     bm_for_check.free()
 
-        if remaining_intersections:
-            _play_warning_sound(context)
-        else:
-            _play_happy_sound(context)
-
-        if not smoothed_objects:
-            self.report({"INFO"}, "No intersecting faces were found.")
-        else:
-            self.report(
-                {"INFO"},
-                "Smoothed intersections on: {}".format(
-                    ", ".join(smoothed_objects)
-                ),
-            )
-
-        return {"FINISHED"}
+        return False
 
 
 profile_module(globals())
