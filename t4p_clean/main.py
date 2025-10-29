@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import array
-import os
+import hashlib
 from typing import MutableSequence
 
 import bmesh
@@ -114,11 +114,11 @@ def set_object_analysis_stats(
 
     if should_update_non_manifold:
         obj["t4p_non_manifold_count"] = int(non_manifold_count)
-        obj["t4p_non_manifold_checksum"] = int(checksum) if checksum is not None else 0
+        obj["t4p_non_manifold_checksum"] = checksum if checksum is not None else "0"
 
     if should_update_intersections:
         obj["t4p_self_intersection_count"] = int(intersection_count)
-        obj["t4p_self_intersection_checksum"] = int(checksum) if checksum is not None else 0
+        obj["t4p_self_intersection_checksum"] = checksum if checksum is not None else "0"
 
 
 def get_bmesh(mesh):
@@ -130,12 +130,32 @@ def get_bmesh(mesh):
     return bm
 
 
-def mesh_checksum_fast(obj):
-    m = obj.data
-    return hash((
-        tuple(round(c, 6) for v in m.vertices for c in v.co),
-        tuple(tuple(p.vertices) for p in m.polygons)
-    ))
+def mesh_checksum_fast(obj, decimals=3):
+    """Stable, fast checksum of vertex positions (rounded) + polygon topology.
+       Object Mode only (uses Mesh data directly).
+    """
+    me = obj.data
+
+    # --- vertex coords (fast path) ---
+    n = len(me.vertices) * 3
+    coords = [0.0] * n
+    me.vertices.foreach_get("co", coords)
+
+    q = 10 ** decimals  # rounding factor
+    # quantize to integers (rounding) to keep it stable and compact
+    coords_q = array.array('i', (int(round(c * q)) for c in coords))
+
+    # --- polygon topology (vertex indices with separators) ---
+    poly_idx = array.array('i')
+    for p in me.polygons:
+        poly_idx.extend(p.vertices)  # indices
+        poly_idx.append(-1)          # separator
+
+    # --- hash (blake2b is fast and stable) ---
+    h = hashlib.blake2b(digest_size=16)
+    h.update(coords_q.tobytes())
+    h.update(poly_idx.tobytes())
+    return h.hexdigest()
 
 
 def bmesh_get_intersecting_face_indices(

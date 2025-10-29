@@ -31,7 +31,7 @@ def _get_active_object_analysis_stats(context) -> tuple[str, str, bool]:
         if (
             stored_checksum is not None
             and current_checksum is not None
-            and int(stored_checksum) != int(current_checksum)
+            and stored_checksum != current_checksum
         ):
             text = f"{text}??"
         return text
