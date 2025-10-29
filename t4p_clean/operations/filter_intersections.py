@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import array
-
 import bmesh
 import bpy
 from bpy.types import Operator
@@ -12,7 +10,7 @@ from ..debug import profile_module
 from ..main import (
     FILTER_OPERATOR_IDNAME,
     bmesh_get_intersecting_face_indices,
-    select_faces,
+    get_cached_self_intersection_count,
     set_object_analysis_stats,
 )
 from ..audio import _play_happy_sound, _play_warning_sound
@@ -45,24 +43,29 @@ class T4P_OT_filter_intersections(Operator):
         mesh_candidates = 0
 
         for obj in selected_objects:
-            face_indices = array.array("i", ())
+            has_intersections = False
             if obj.type == "MESH" and obj.data is not None:
                 mesh_candidates += 1
-                context.view_layer.objects.active = obj
-                obj.select_set(True)
-                bpy.ops.object.mode_set(mode="EDIT")
-                bm = bmesh.from_edit_mesh(obj.data)
-                bm.verts.ensure_lookup_table()
-                bm.faces.ensure_lookup_table()
-                bm.edges.ensure_lookup_table()
+                cached_intersections = get_cached_self_intersection_count(obj)
+                if cached_intersections is not None:
+                    has_intersections = cached_intersections > 0
+                else:
+                    context.view_layer.objects.active = obj
+                    obj.select_set(True)
+                    bpy.ops.object.mode_set(mode="EDIT")
+                    bm = bmesh.from_edit_mesh(obj.data)
+                    bm.verts.ensure_lookup_table()
+                    bm.faces.ensure_lookup_table()
+                    bm.edges.ensure_lookup_table()
 
-                face_indices = bmesh_get_intersecting_face_indices(bm)
-                intersection_count = len(face_indices)
-                bpy.ops.object.mode_set(mode="OBJECT")
-                obj.select_set(False)
-                set_object_analysis_stats(obj, intersection_count=intersection_count)
+                    face_indices = bmesh_get_intersecting_face_indices(bm)
+                    has_intersections = bool(face_indices)
+                    intersection_count = len(face_indices)
+                    bpy.ops.object.mode_set(mode="OBJECT")
+                    obj.select_set(False)
+                    set_object_analysis_stats(obj, intersection_count=intersection_count)
 
-            if bool(face_indices):
+            if has_intersections:
                 objects_with_intersections.append(obj)
 
         for obj in objects_with_intersections:

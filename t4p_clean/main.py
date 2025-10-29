@@ -121,6 +121,51 @@ def set_object_analysis_stats(
         obj["t4p_self_intersection_checksum"] = checksum if checksum is not None else "0"
 
 
+def _get_validated_object_stat(
+    obj: bpy.types.Object | None,
+    count_key: str,
+    checksum_key: str,
+) -> int | None:
+    """Return the stored analysis value when the mesh checksum is current."""
+
+    if obj is None:
+        return None
+
+    stored_count = obj.get(count_key)
+    stored_checksum = obj.get(checksum_key)
+    if stored_count is None or stored_checksum in (None, "0"):
+        return None
+
+    current_checksum = calculate_object_mesh_checksum(obj)
+    if current_checksum is None or current_checksum != stored_checksum:
+        return None
+
+    try:
+        return int(stored_count)
+    except (TypeError, ValueError):
+        return None
+
+
+def get_cached_non_manifold_count(obj: bpy.types.Object | None) -> int | None:
+    """Return the cached non-manifold vertex count when available."""
+
+    return _get_validated_object_stat(
+        obj,
+        "t4p_non_manifold_count",
+        "t4p_non_manifold_checksum",
+    )
+
+
+def get_cached_self_intersection_count(obj: bpy.types.Object | None) -> int | None:
+    """Return the cached self-intersection count when available."""
+
+    return _get_validated_object_stat(
+        obj,
+        "t4p_self_intersection_count",
+        "t4p_self_intersection_checksum",
+    )
+
+
 def get_bmesh(mesh):
     """get an updated bmesh from mesh and make all indexes"""
     bm = bmesh.from_edit_mesh(mesh)
