@@ -6,7 +6,13 @@ from contextlib import AbstractContextManager
 
 import bpy
 
-from ..main import update_window_manager_progress, window_manager_progress
+from ..main import (
+    finish_ui_modal_progress,
+    start_ui_modal_progress,
+    update_ui_modal_progress,
+    update_window_manager_progress,
+    window_manager_progress,
+)
 
 
 class ModalTimerMixin:
@@ -17,6 +23,7 @@ class ModalTimerMixin:
         bpy.types.WindowManager | None
     ] | None = None
     _modal_progress_manager: bpy.types.WindowManager | None = None
+    _modal_ui_manager: bpy.types.WindowManager | None = None
 
     def _start_modal(self, context: bpy.types.Context, total_items: int) -> set[str]:
         """Register the operator as a modal handler and start progress tracking."""
@@ -29,6 +36,11 @@ class ModalTimerMixin:
 
         self._modal_progress_context = window_manager_progress(context, total_items)
         self._modal_progress_manager = self._modal_progress_context.__enter__()
+        self._modal_ui_manager = self._modal_progress_manager or window_manager
+        progress_label = getattr(self, "bl_label", "")
+        start_ui_modal_progress(
+            self._modal_ui_manager, label=progress_label, total_items=total_items
+        )
 
         return {"RUNNING_MODAL"}
 
@@ -36,6 +48,7 @@ class ModalTimerMixin:
         """Update the progress indicator when active."""
 
         update_window_manager_progress(self._modal_progress_manager, current_item)
+        update_ui_modal_progress(self._modal_ui_manager, current_item)
 
     def _stop_modal(self, context: bpy.types.Context) -> None:
         """Tear down timers and progress tracking for the modal operator."""
@@ -48,8 +61,11 @@ class ModalTimerMixin:
         if self._modal_progress_context is not None:
             self._modal_progress_context.__exit__(None, None, None)
 
+        finish_ui_modal_progress(self._modal_ui_manager)
+
         self._modal_progress_context = None
         self._modal_progress_manager = None
+        self._modal_ui_manager = None
 
 
 __all__ = ("ModalTimerMixin",)

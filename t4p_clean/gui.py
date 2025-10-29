@@ -51,6 +51,25 @@ def _draw_analysis_stat(layout, label_text: str, value: str) -> None:
     value_row.alignment = "RIGHT"
     value_row.label(text=value)
 
+
+def _draw_modal_progress(layout, window_manager) -> None:
+    """Draw the progress indicator for running modal operators when possible."""
+
+    if window_manager is None:
+        return
+
+    is_running = getattr(window_manager, "t4p_modal_progress_is_running", False)
+    if not is_running:
+        return
+
+    total = max(getattr(window_manager, "t4p_modal_progress_total", 0), 0)
+    current = max(getattr(window_manager, "t4p_modal_progress_current", 0), 0)
+    label = getattr(window_manager, "t4p_modal_progress_label", "") or "Processing..."
+
+    progress = 1.0 if total <= 0 else min(max(float(current) / float(total), 0.0), 1.0)
+
+    layout.template_progress_bar(progress, text=label)
+
 from .debug import profile_module
 from .main import (
     ANALYZE_OPERATOR_IDNAME,
@@ -84,6 +103,8 @@ class T4P_PT_main_panel(Panel):
         scene = context.scene
         is_object_mode = context.mode == "OBJECT"
         has_selection = bool(getattr(context, "selected_objects", []))
+
+        _draw_modal_progress(layout, getattr(context, "window_manager", None))
 
         controls_col = layout.column(align=True)
 
