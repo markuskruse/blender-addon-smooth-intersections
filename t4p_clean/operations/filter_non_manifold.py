@@ -11,6 +11,7 @@ from ..main import (
     FILTER_NON_MANIFOLD_OPERATOR_IDNAME,
     count_non_manifold_verts,
     get_bmesh,
+    get_cached_non_manifold_count,
     set_object_analysis_stats,
 )
 from ..audio import _play_happy_sound, _play_warning_sound
@@ -52,18 +53,23 @@ class T4P_OT_filter_non_manifold(Operator):
 
             mesh_candidates += 1
 
-            context.view_layer.objects.active = obj
-            obj.select_set(True)
+            cached_non_manifold = get_cached_non_manifold_count(obj)
+            if cached_non_manifold is not None:
+                non_manifold_count = cached_non_manifold
+                has_non_manifold = non_manifold_count > 0
+            else:
+                context.view_layer.objects.active = obj
+                obj.select_set(True)
 
-            bpy.ops.object.mode_set(mode="EDIT")
+                bpy.ops.object.mode_set(mode="EDIT")
 
-            bm = get_bmesh(obj.data)
-            non_manifold_count = count_non_manifold_verts(bm)
-            has_non_manifold = non_manifold_count > 0
+                bm = get_bmesh(obj.data)
+                non_manifold_count = count_non_manifold_verts(bm)
+                has_non_manifold = non_manifold_count > 0
 
-            bpy.ops.object.mode_set(mode="OBJECT")
-            obj.select_set(False)
-            set_object_analysis_stats(obj, non_manifold_count=non_manifold_count)
+                bpy.ops.object.mode_set(mode="OBJECT")
+                obj.select_set(False)
+                set_object_analysis_stats(obj, non_manifold_count=non_manifold_count)
             if has_non_manifold:
                 non_manifold_list.append(obj)
 
