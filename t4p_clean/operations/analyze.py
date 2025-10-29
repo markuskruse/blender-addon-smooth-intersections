@@ -100,32 +100,44 @@ class T4P_OT_analyze_selection(Operator):
         bpy.ops.object.select_all(action="DESELECT")
         analyses: list[tuple[str, int, int]] = []
 
-        for obj in mesh_objects:
-            context.view_layer.objects.active = obj
-            obj.select_set(True)
+        wm = getattr(context, "window_manager", None)
+        total_objects = len(mesh_objects)
+        if wm is not None:
+            wm.progress_begin(0, total_objects)
 
-            try:
-                bpy.ops.object.mode_set(mode="EDIT")
-            except RuntimeError:
+        try:
+            for index, obj in enumerate(mesh_objects):
+                if wm is not None:
+                    wm.progress(index)
+
+                context.view_layer.objects.active = obj
+                obj.select_set(True)
+
+                try:
+                    bpy.ops.object.mode_set(mode="EDIT")
+                except RuntimeError:
+                    obj.select_set(False)
+                    continue
+
+                mesh = obj.data
+                _triangulate_edit_mesh(mesh)
+                non_manifold_count = _count_non_manifold_vertices(mesh)
+                bpy.ops.mesh.select_all(action="DESELECT")
+                intersection_count = _count_self_intersections(mesh)
+
+                bpy.ops.object.mode_set(mode="OBJECT")
                 obj.select_set(False)
-                continue
 
-            mesh = obj.data
-            _triangulate_edit_mesh(mesh)
-            non_manifold_count = _count_non_manifold_vertices(mesh)
-            bpy.ops.mesh.select_all(action="DESELECT")
-            intersection_count = _count_self_intersections(mesh)
+                set_object_analysis_stats(
+                    obj,
+                    non_manifold_count=int(non_manifold_count),
+                    intersection_count=int(intersection_count),
+                )
 
-            bpy.ops.object.mode_set(mode="OBJECT")
-            obj.select_set(False)
-
-            set_object_analysis_stats(
-                obj,
-                non_manifold_count=int(non_manifold_count),
-                intersection_count=int(intersection_count),
-            )
-
-            analyses.append((obj.name, non_manifold_count, intersection_count))
+                analyses.append((obj.name, non_manifold_count, intersection_count))
+        finally:
+            if wm is not None:
+                wm.progress_end()
 
         _restore_object_selection(
             context,
