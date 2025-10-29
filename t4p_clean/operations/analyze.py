@@ -63,7 +63,7 @@ def _restore_object_selection(
         context.view_layer.objects.active = None
 
 
-class T4P_OT_analyze_selection(Operator):
+class T4P_OT_analyze_selection(ModalTimerMixin, Operator):
     """Analyze selected mesh objects and store non-manifold and intersection counts."""
 
     bl_idname = ANALYZE_OPERATOR_IDNAME
@@ -73,7 +73,38 @@ class T4P_OT_analyze_selection(Operator):
     )
     bl_options = {"REGISTER", "UNDO"}
 
+    def __init__(self) -> None:
+        self._objects_to_process: list[bpy.types.Object] = []
+        self._current_index = 0
+        self._initial_selection: list[bpy.types.Object] = []
+        self._initial_active: bpy.types.Object | None = None
+        self._scene: bpy.types.Scene | None = None
+        self._analyses: list[tuple[str, int, int]] = []
+
+    def invoke(self, context: bpy.types.Context, event: bpy.types.Event):
+        return self._begin(context)
+
     def execute(self, context: bpy.types.Context):
+        return self._begin(context)
+
+    def modal(self, context: bpy.types.Context, event: bpy.types.Event):
+        if event.type == "ESC":
+            return self._finish_modal(context, cancelled=True)
+
+        if event.type != "TIMER":
+            return {"RUNNING_MODAL"}
+
+        if self._current_index >= len(self._objects_to_process):
+            return self._finish_modal(context, cancelled=False)
+
+        obj = self._objects_to_process[self._current_index]
+        self._process_object(context, obj)
+        self._current_index += 1
+        self._update_modal_progress(self._current_index)
+        return {"RUNNING_MODAL"}
+
+    def _begin(self, context: bpy.types.Context):
+        self._reset_state()
         if context.mode != "OBJECT":
             self.report({"ERROR"}, "Switch to Object mode to analyze objects.")
             return {"CANCELLED"}
@@ -83,73 +114,85 @@ class T4P_OT_analyze_selection(Operator):
             self.report({"INFO"}, "No objects selected.")
             return {"FINISHED"}
 
-        scene = context.scene
+        self._scene = context.scene
         mesh_objects = [
             obj
             for obj in selected_objects
             if obj.type == "MESH"
             and obj.data is not None
-            and (scene is None or scene.objects.get(obj.name) is not None)
+            and (self._scene is None or self._scene.objects.get(obj.name) is not None)
         ]
         if not mesh_objects:
             self.report({"INFO"}, "No mesh objects selected.")
             return {"FINISHED"}
 
-        initial_active = context.view_layer.objects.active
+        self._initial_selection = selected_objects
+        self._initial_active = context.view_layer.objects.active
+        self._objects_to_process = mesh_objects
 
         bpy.ops.object.select_all(action="DESELECT")
-        analyses: list[tuple[str, int, int]] = []
 
-        wm = getattr(context, "window_manager", None)
-        total_objects = len(mesh_objects)
-        if wm is not None:
-            wm.progress_begin(0, total_objects)
+        return self._start_modal(context, len(mesh_objects))
+
+    def _reset_state(self) -> None:
+        self._objects_to_process = []
+        self._current_index = 0
+        self._initial_selection = []
+        self._initial_active = None
+        self._scene = None
+        self._analyses = []
+
+    def _process_object(self, context: bpy.types.Context, obj: bpy.types.Object) -> None:
+        if self._scene is not None and self._scene.objects.get(obj.name) is None:
+            return
+
+        context.view_layer.objects.active = obj
+        obj.select_set(True)
 
         try:
-            for index, obj in enumerate(mesh_objects):
-                if wm is not None:
-                    wm.progress(index)
+            bpy.ops.object.mode_set(mode="EDIT")
+        except RuntimeError:
+            obj.select_set(False)
+            return
 
-                context.view_layer.objects.active = obj
-                obj.select_set(True)
+        mesh = obj.data
+        _triangulate_edit_mesh(mesh)
+        non_manifold_count = _count_non_manifold_vertices(mesh)
+        bpy.ops.mesh.select_all(action="DESELECT")
+        intersection_count = _count_self_intersections(mesh)
 
-                try:
-                    bpy.ops.object.mode_set(mode="EDIT")
-                except RuntimeError:
-                    obj.select_set(False)
-                    continue
+        bpy.ops.object.mode_set(mode="OBJECT")
+        obj.select_set(False)
 
-                mesh = obj.data
-                _triangulate_edit_mesh(mesh)
-                non_manifold_count = _count_non_manifold_vertices(mesh)
-                bpy.ops.mesh.select_all(action="DESELECT")
-                intersection_count = _count_self_intersections(mesh)
+        set_object_analysis_stats(
+            obj,
+            non_manifold_count=int(non_manifold_count),
+            intersection_count=int(intersection_count),
+        )
 
-                bpy.ops.object.mode_set(mode="OBJECT")
-                obj.select_set(False)
+        self._analyses.append((obj.name, non_manifold_count, intersection_count))
 
-                set_object_analysis_stats(
-                    obj,
-                    non_manifold_count=int(non_manifold_count),
-                    intersection_count=int(intersection_count),
-                )
-
-                analyses.append((obj.name, non_manifold_count, intersection_count))
-        finally:
-            if wm is not None:
-                wm.progress_end()
+    def _finish_modal(self, context: bpy.types.Context, *, cancelled: bool) -> set[str]:
+        self._stop_modal(context)
 
         _restore_object_selection(
             context,
-            original_selection=selected_objects,
-            initial_active=initial_active,
-            scene=scene,
+            original_selection=self._initial_selection,
+            initial_active=self._initial_active,
+            scene=self._scene,
         )
 
-        if analyses:
+        if cancelled:
+            self.report(
+                {"WARNING"},
+                "Analysis cancelled before all objects were processed.",
+            )
+            return {"CANCELLED"}
+
+        if self._analyses:
             summary = "; ".join(
                 f"{name}: non-manifold {non_manifold}, intersections {intersections}"
-                for name, non_manifold, intersections in analyses
+                for name, non_manifold, intersections in self._analyses
             )
             self.report({"INFO"}, f"Analyzed objects - {summary}")
         else:
