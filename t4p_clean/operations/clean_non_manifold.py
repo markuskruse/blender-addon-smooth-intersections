@@ -9,7 +9,13 @@ from bpy.types import Operator
 from ..debug import profile_module
 from ..main import (
     CLEAN_NON_MANIFOLD_OPERATOR_IDNAME,
-    _triangulate_bmesh, select_non_manifold_verts, count_non_manifold_verts, get_bmesh, mesh_checksum_fast,
+    _triangulate_bmesh,
+    count_non_manifold_verts,
+    get_bmesh,
+    mesh_checksum_fast,
+    select_non_manifold_verts,
+    update_window_manager_progress,
+    window_manager_progress,
 )
 from ..audio import _play_happy_sound, _play_warning_sound
 
@@ -272,33 +278,35 @@ class T4P_OT_clean_non_manifold(Operator):
 
         initial_active = context.view_layer.objects.active
         scene = context.scene
-        num_candidates = 0
+        candidate_objects = [
+            obj
+            for obj in selected_objects
+            if obj.type == "MESH"
+            and obj.data is not None
+            and (scene is None or scene.objects.get(obj.name) is not None)
+        ]
+        num_candidates = len(candidate_objects)
         num_fine = 0
         num_failed = 0
         num_fixed = 0
         num_worse = 0
 
-        for obj in selected_objects:
-            if obj.type != "MESH" or obj.data is None:
-                continue
+        with window_manager_progress(context, num_candidates) as progress:
+            for index, obj in enumerate(candidate_objects):
+                update_window_manager_progress(progress, index)
 
-            if scene is not None and scene.objects.get(obj.name) is None:
-                continue
+                context.view_layer.objects.active = obj
+                obj.select_set(True)
+                changed, clean, worse = _clean_object_non_manifold(obj, 0.001, 100)
 
-            num_candidates += 1
-
-            context.view_layer.objects.active = obj
-            obj.select_set(True)
-            changed, clean, worse = _clean_object_non_manifold(obj, 0.001, 100)
-
-            if clean and not changed:
-                num_fine += 1
-            elif clean and changed:
-                num_fixed += 1
-            elif not clean and changed:
-                num_failed += 1
-            if worse:
-                num_worse += 1
+                if clean and not changed:
+                    num_fine += 1
+                elif clean and changed:
+                    num_fixed += 1
+                elif not clean and changed:
+                    num_failed += 1
+                if worse:
+                    num_worse += 1
 
         if initial_active and (
                 scene is None
