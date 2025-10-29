@@ -8,7 +8,7 @@ from typing import MutableSequence
 
 import bmesh
 import bpy
-from bpy.props import BoolProperty, FloatProperty, IntProperty
+from bpy.props import BoolProperty, FloatProperty, IntProperty, StringProperty
 from mathutils.bvhtree import BVHTree
 
 from .debug import DEBUG_PREFERENCE_ATTR, profile_module
@@ -67,6 +67,45 @@ def update_window_manager_progress(
         return
 
     window_manager.progress_update(current_item)
+
+
+def start_ui_modal_progress(
+    window_manager: bpy.types.WindowManager | None, *, label: str, total_items: int
+) -> None:
+    """Initialize the custom UI progress indicator in the sidebar."""
+
+    if window_manager is None or not hasattr(window_manager, "t4p_modal_progress_total"):
+        return
+
+    total = max(int(total_items), 0)
+
+    window_manager.t4p_modal_progress_label = label
+    window_manager.t4p_modal_progress_total = total
+    window_manager.t4p_modal_progress_current = 0
+    window_manager.t4p_modal_progress_is_running = total > 0
+
+
+def update_ui_modal_progress(
+    window_manager: bpy.types.WindowManager | None, current_item: int
+) -> None:
+    """Update the sidebar progress indicator when a modal operator advances."""
+
+    if window_manager is None or not hasattr(window_manager, "t4p_modal_progress_total"):
+        return
+
+    total = max(int(window_manager.t4p_modal_progress_total), 0)
+    clamped_current = max(0, min(int(current_item), total if total > 0 else int(current_item)))
+    window_manager.t4p_modal_progress_current = clamped_current
+
+
+def finish_ui_modal_progress(window_manager: bpy.types.WindowManager | None) -> None:
+    """Clear the sidebar progress indicator once the modal operator stops."""
+
+    if window_manager is None or not hasattr(window_manager, "t4p_modal_progress_total"):
+        return
+
+    window_manager.t4p_modal_progress_current = window_manager.t4p_modal_progress_total
+    window_manager.t4p_modal_progress_is_running = False
 
 
 class T4PAddonPreferences(bpy.types.AddonPreferences):
@@ -364,6 +403,28 @@ def register() -> None:
         max=1.0,
         precision=3,
     )
+    bpy.types.WindowManager.t4p_modal_progress_is_running = BoolProperty(
+        name="T4P Modal Progress Active",
+        default=False,
+        options={"HIDDEN"},
+    )
+    bpy.types.WindowManager.t4p_modal_progress_current = IntProperty(
+        name="T4P Modal Progress Current",
+        default=0,
+        min=0,
+        options={"HIDDEN"},
+    )
+    bpy.types.WindowManager.t4p_modal_progress_total = IntProperty(
+        name="T4P Modal Progress Total",
+        default=0,
+        min=0,
+        options={"HIDDEN"},
+    )
+    bpy.types.WindowManager.t4p_modal_progress_label = StringProperty(
+        name="T4P Modal Progress Label",
+        default="",
+        options={"HIDDEN"},
+    )
     for cls in _iter_classes():
         bpy.utils.register_class(cls)
 
@@ -375,6 +436,14 @@ def unregister() -> None:
         del bpy.types.Scene.t4p_smooth_intersection_attempts
     if hasattr(bpy.types.Scene, "t4p_batch_decimate_ratio"):
         del bpy.types.Scene.t4p_batch_decimate_ratio
+    if hasattr(bpy.types.WindowManager, "t4p_modal_progress_is_running"):
+        del bpy.types.WindowManager.t4p_modal_progress_is_running
+    if hasattr(bpy.types.WindowManager, "t4p_modal_progress_current"):
+        del bpy.types.WindowManager.t4p_modal_progress_current
+    if hasattr(bpy.types.WindowManager, "t4p_modal_progress_total"):
+        del bpy.types.WindowManager.t4p_modal_progress_total
+    if hasattr(bpy.types.WindowManager, "t4p_modal_progress_label"):
+        del bpy.types.WindowManager.t4p_modal_progress_label
 
 
 profile_module(globals())
@@ -395,6 +464,9 @@ __all__ = (
     "CLEAN_NON_MANIFOLD_OPERATOR_IDNAME",
     "TRIANGULATE_OPERATOR_IDNAME",
     "SPLIT_LONG_FACES_OPERATOR_IDNAME",
+    "start_ui_modal_progress",
+    "update_ui_modal_progress",
+    "finish_ui_modal_progress",
     "_triangulate_bmesh",
     "T4PAddonPreferences",
     "set_object_analysis_stats",
