@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import bpy
 from bpy.types import Operator
 
@@ -9,6 +11,17 @@ from ..audio import _play_happy_sound
 from ..debug import profile_module
 from ..main import BATCH_DECIMATE_OPERATOR_IDNAME
 from .modal_utils import ModalTimerMixin
+
+
+@dataclass
+class _BatchDecimateState:
+    """Mutable state tracked while the decimate operator runs."""
+
+    objects_to_process: list[bpy.types.Object] = field(default_factory=list)
+    current_index: int = 0
+    decimated_objects: list[str] = field(default_factory=list)
+    initial_active: bpy.types.Object | None = None
+    ratio: float = 0.5
 
 
 class T4P_OT_batch_decimate(ModalTimerMixin, Operator):
@@ -20,11 +33,11 @@ class T4P_OT_batch_decimate(ModalTimerMixin, Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def __init__(self) -> None:
-        self._objects_to_process: list[bpy.types.Object] = []
-        self._current_index = 0
-        self._decimated_objects: list[str] = []
-        self._initial_active: bpy.types.Object | None = None
-        self._ratio: float = 0.5
+        object.__setattr__(self, "_batch_decimate_state", _BatchDecimateState())
+
+    @property
+    def _state(self) -> _BatchDecimateState:
+        return object.__getattribute__(self, "_batch_decimate_state")
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event):
         return self._begin(context)
@@ -39,17 +52,19 @@ class T4P_OT_batch_decimate(ModalTimerMixin, Operator):
         if event.type != "TIMER":
             return {"RUNNING_MODAL"}
 
-        if self._current_index >= len(self._objects_to_process):
+        state = self._state
+        if state.current_index >= len(state.objects_to_process):
             return self._finish_modal(context, cancelled=False)
 
-        obj = self._objects_to_process[self._current_index]
+        obj = state.objects_to_process[state.current_index]
         self._process_object(context, obj)
-        self._current_index += 1
-        self._update_modal_progress(self._current_index)
+        state.current_index += 1
+        self._update_modal_progress(state.current_index)
         return {"RUNNING_MODAL"}
 
     def _begin(self, context: bpy.types.Context):
         self._reset_state()
+        state = self._state
         if context.mode != "OBJECT":
             self.report({"ERROR"}, "Switch to Object mode to batch decimate objects.")
             return {"CANCELLED"}
@@ -66,17 +81,18 @@ class T4P_OT_batch_decimate(ModalTimerMixin, Operator):
             _play_happy_sound(context)
             return {"FINISHED"}
 
-        self._ratio = ratio
-        self._objects_to_process = mesh_objects
-        self._initial_active = context.view_layer.objects.active
+        state.ratio = ratio
+        state.objects_to_process = mesh_objects
+        state.initial_active = context.view_layer.objects.active
         return self._start_modal(context, len(mesh_objects))
 
     def _reset_state(self) -> None:
-        self._objects_to_process = []
-        self._current_index = 0
-        self._decimated_objects = []
-        self._initial_active = None
-        self._ratio = 0.5
+        state = self._state
+        state.objects_to_process.clear()
+        state.current_index = 0
+        state.decimated_objects.clear()
+        state.initial_active = None
+        state.ratio = 0.5
 
     def _collect_mesh_objects(self, context: bpy.types.Context) -> list[bpy.types.Object]:
         selected_objects = list(getattr(context, "selected_objects", []))
@@ -88,6 +104,7 @@ class T4P_OT_batch_decimate(ModalTimerMixin, Operator):
 
     def _process_object(self, context: bpy.types.Context, obj: bpy.types.Object) -> None:
         scene = context.scene
+        state = self._state
         if scene is not None and scene.objects.get(obj.name) is None:
             return
 
@@ -101,7 +118,7 @@ class T4P_OT_batch_decimate(ModalTimerMixin, Operator):
         modifier.show_render = False
         if hasattr(modifier, "decimate_type"):
             modifier.decimate_type = "COLLAPSE"
-        modifier.ratio = self._ratio
+        modifier.ratio = state.ratio
 
         try:
             bpy.ops.object.modifier_apply(modifier=modifier.name)
@@ -111,26 +128,27 @@ class T4P_OT_batch_decimate(ModalTimerMixin, Operator):
                 obj.modifiers.remove(existing)
             return
 
-        self._decimated_objects.append(obj.name)
+        state.decimated_objects.append(obj.name)
 
     def _finish_modal(self, context: bpy.types.Context, *, cancelled: bool) -> set[str]:
         self._stop_modal(context)
+        state = self._state
 
         if (
-            self._initial_active
-            and context.scene.objects.get(self._initial_active.name) is not None
+            state.initial_active
+            and context.scene.objects.get(state.initial_active.name) is not None
         ):
-            context.view_layer.objects.active = self._initial_active
+            context.view_layer.objects.active = state.initial_active
 
         if cancelled:
-            processed = len(self._decimated_objects)
-            total = len(self._objects_to_process)
+            processed = len(state.decimated_objects)
+            total = len(state.objects_to_process)
             self.report(
                 {"WARNING"},
                 f"Batch decimation cancelled after {processed} of {total} objects.",
             )
-        elif self._decimated_objects:
-            object_list = ", ".join(self._decimated_objects)
+        elif state.decimated_objects:
+            object_list = ", ".join(state.decimated_objects)
             self.report({"INFO"}, f"Decimated: {object_list}")
         else:
             self.report({"INFO"}, "Decimation modifiers could not be applied.")
