@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import bmesh
 import bpy
 from bpy.types import Operator
@@ -15,6 +17,19 @@ from ..main import (
     get_bmesh,
     set_object_analysis_stats,
 )
+from .modal_utils import ModalTimerMixin
+
+
+@dataclass
+class _AnalysisState:
+    """Mutable state tracked while the analyze operator runs."""
+
+    objects_to_process: list[bpy.types.Object] = field(default_factory=list)
+    current_index: int = 0
+    initial_selection: list[bpy.types.Object] = field(default_factory=list)
+    initial_active: bpy.types.Object | None = None
+    scene: bpy.types.Scene | None = None
+    analyses: list[tuple[str, int, int]] = field(default_factory=list)
 
 
 def _triangulate_edit_mesh(mesh: bpy.types.Mesh) -> None:
@@ -74,12 +89,11 @@ class T4P_OT_analyze_selection(ModalTimerMixin, Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def __init__(self) -> None:
-        self._objects_to_process: list[bpy.types.Object] = []
-        self._current_index = 0
-        self._initial_selection: list[bpy.types.Object] = []
-        self._initial_active: bpy.types.Object | None = None
-        self._scene: bpy.types.Scene | None = None
-        self._analyses: list[tuple[str, int, int]] = []
+        object.__setattr__(self, "_analysis_state", _AnalysisState())
+
+    @property
+    def _state(self) -> _AnalysisState:
+        return object.__getattribute__(self, "_analysis_state")
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event):
         return self._begin(context)
@@ -88,23 +102,25 @@ class T4P_OT_analyze_selection(ModalTimerMixin, Operator):
         return self._begin(context)
 
     def modal(self, context: bpy.types.Context, event: bpy.types.Event):
+        state = self._state
         if event.type == "ESC":
             return self._finish_modal(context, cancelled=True)
 
         if event.type != "TIMER":
             return {"RUNNING_MODAL"}
 
-        if self._current_index >= len(self._objects_to_process):
+        if state.current_index >= len(state.objects_to_process):
             return self._finish_modal(context, cancelled=False)
 
-        obj = self._objects_to_process[self._current_index]
+        obj = state.objects_to_process[state.current_index]
         self._process_object(context, obj)
-        self._current_index += 1
-        self._update_modal_progress(self._current_index)
+        state.current_index += 1
+        self._update_modal_progress(state.current_index)
         return {"RUNNING_MODAL"}
 
     def _begin(self, context: bpy.types.Context):
         self._reset_state()
+        state = self._state
         if context.mode != "OBJECT":
             self.report({"ERROR"}, "Switch to Object mode to analyze objects.")
             return {"CANCELLED"}
@@ -114,36 +130,38 @@ class T4P_OT_analyze_selection(ModalTimerMixin, Operator):
             self.report({"INFO"}, "No objects selected.")
             return {"FINISHED"}
 
-        self._scene = context.scene
+        state.scene = context.scene
         mesh_objects = [
             obj
             for obj in selected_objects
             if obj.type == "MESH"
             and obj.data is not None
-            and (self._scene is None or self._scene.objects.get(obj.name) is not None)
+            and (state.scene is None or state.scene.objects.get(obj.name) is not None)
         ]
         if not mesh_objects:
             self.report({"INFO"}, "No mesh objects selected.")
             return {"FINISHED"}
 
-        self._initial_selection = selected_objects
-        self._initial_active = context.view_layer.objects.active
-        self._objects_to_process = mesh_objects
+        state.initial_selection = selected_objects
+        state.initial_active = context.view_layer.objects.active
+        state.objects_to_process = mesh_objects
 
         bpy.ops.object.select_all(action="DESELECT")
 
         return self._start_modal(context, len(mesh_objects))
 
     def _reset_state(self) -> None:
-        self._objects_to_process = []
-        self._current_index = 0
-        self._initial_selection = []
-        self._initial_active = None
-        self._scene = None
-        self._analyses = []
+        state = self._state
+        state.objects_to_process.clear()
+        state.current_index = 0
+        state.initial_selection.clear()
+        state.initial_active = None
+        state.scene = None
+        state.analyses.clear()
 
     def _process_object(self, context: bpy.types.Context, obj: bpy.types.Object) -> None:
-        if self._scene is not None and self._scene.objects.get(obj.name) is None:
+        state = self._state
+        if state.scene is not None and state.scene.objects.get(obj.name) is None:
             return
 
         context.view_layer.objects.active = obj
@@ -170,16 +188,17 @@ class T4P_OT_analyze_selection(ModalTimerMixin, Operator):
             intersection_count=int(intersection_count),
         )
 
-        self._analyses.append((obj.name, non_manifold_count, intersection_count))
+        state.analyses.append((obj.name, non_manifold_count, intersection_count))
 
     def _finish_modal(self, context: bpy.types.Context, *, cancelled: bool) -> set[str]:
         self._stop_modal(context)
+        state = self._state
 
         _restore_object_selection(
             context,
-            original_selection=self._initial_selection,
-            initial_active=self._initial_active,
-            scene=self._scene,
+            original_selection=state.initial_selection,
+            initial_active=state.initial_active,
+            scene=state.scene,
         )
 
         if cancelled:
@@ -189,10 +208,10 @@ class T4P_OT_analyze_selection(ModalTimerMixin, Operator):
             )
             return {"CANCELLED"}
 
-        if self._analyses:
+        if state.analyses:
             summary = "; ".join(
                 f"{name}: non-manifold {non_manifold}, intersections {intersections}"
-                for name, non_manifold, intersections in self._analyses
+                for name, non_manifold, intersections in state.analyses
             )
             self.report({"INFO"}, f"Analyzed objects - {summary}")
         else:
