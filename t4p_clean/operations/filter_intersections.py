@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import bmesh
 import bpy
 from bpy.types import Operator
@@ -17,6 +19,19 @@ from ..main import (
 from .modal_utils import ModalTimerMixin
 
 
+@dataclass
+class _FilterIntersectionsState:
+    """Mutable state tracked while filtering intersections."""
+
+    objects_to_process: list[bpy.types.Object] = field(default_factory=list)
+    current_index: int = 0
+    initial_active: bpy.types.Object | None = None
+    initial_selection: list[bpy.types.Object] = field(default_factory=list)
+    objects_with_intersections: list[bpy.types.Object] = field(default_factory=list)
+    mesh_candidates: int = 0
+    scene: bpy.types.Scene | None = None
+
+
 class T4P_OT_filter_intersections(ModalTimerMixin, Operator):
     """Keep selected only the mesh objects that have intersections."""
 
@@ -27,13 +42,11 @@ class T4P_OT_filter_intersections(ModalTimerMixin, Operator):
     t4p_disable_long_running_sound = True
 
     def __init__(self) -> None:
-        self._objects_to_process: list[bpy.types.Object] = []
-        self._current_index = 0
-        self._initial_active: bpy.types.Object | None = None
-        self._initial_selection: list[bpy.types.Object] = []
-        self._objects_with_intersections: list[bpy.types.Object] = []
-        self._mesh_candidates = 0
-        self._scene: bpy.types.Scene | None = None
+        object.__setattr__(self, "_filter_intersections_state", _FilterIntersectionsState())
+
+    @property
+    def _state(self) -> _FilterIntersectionsState:
+        return object.__getattribute__(self, "_filter_intersections_state")
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event):
         return self._begin(context)
@@ -48,17 +61,19 @@ class T4P_OT_filter_intersections(ModalTimerMixin, Operator):
         if event.type != "TIMER":
             return {"RUNNING_MODAL"}
 
-        if self._current_index >= len(self._objects_to_process):
+        state = self._state
+        if state.current_index >= len(state.objects_to_process):
             return self._finish_modal(context, cancelled=False)
 
-        obj = self._objects_to_process[self._current_index]
+        obj = state.objects_to_process[state.current_index]
         self._process_object(context, obj)
-        self._current_index += 1
-        self._update_modal_progress(self._current_index)
+        state.current_index += 1
+        self._update_modal_progress(state.current_index)
         return {"RUNNING_MODAL"}
 
     def _begin(self, context: bpy.types.Context):
         self._reset_state()
+        state = self._state
         if context.mode != "OBJECT":
             self.report({"ERROR"}, "Switch to Object mode to filter intersections.")
             return {"CANCELLED"}
@@ -68,36 +83,38 @@ class T4P_OT_filter_intersections(ModalTimerMixin, Operator):
             self.report({"INFO"}, "No objects selected.")
             return {"FINISHED"}
 
-        self._initial_active = context.view_layer.objects.active
-        self._initial_selection = selected_objects
-        self._objects_to_process = selected_objects
-        self._scene = context.scene
+        state.initial_active = context.view_layer.objects.active
+        state.initial_selection = selected_objects
+        state.objects_to_process = selected_objects
+        state.scene = context.scene
 
         bpy.ops.object.select_all(action="DESELECT")
 
         return self._start_modal(context, len(selected_objects))
 
     def _reset_state(self) -> None:
-        self._objects_to_process = []
-        self._current_index = 0
-        self._initial_active = None
-        self._initial_selection = []
-        self._objects_with_intersections = []
-        self._mesh_candidates = 0
-        self._scene = None
+        state = self._state
+        state.objects_to_process.clear()
+        state.current_index = 0
+        state.initial_active = None
+        state.initial_selection.clear()
+        state.objects_with_intersections.clear()
+        state.mesh_candidates = 0
+        state.scene = None
 
     def _process_object(self, context: bpy.types.Context, obj: bpy.types.Object) -> None:
+        state = self._state
         if obj.type != "MESH" or obj.data is None:
             return
 
-        if self._scene is not None and self._scene.objects.get(obj.name) is None:
+        if state.scene is not None and state.scene.objects.get(obj.name) is None:
             return
 
-        self._mesh_candidates += 1
+        state.mesh_candidates += 1
         cached_intersections = get_cached_self_intersection_count(obj)
         if cached_intersections is not None:
             if cached_intersections > 0:
-                self._objects_with_intersections.append(obj)
+                state.objects_with_intersections.append(obj)
             return
 
         context.view_layer.objects.active = obj
@@ -123,10 +140,11 @@ class T4P_OT_filter_intersections(ModalTimerMixin, Operator):
         set_object_analysis_stats(obj, intersection_count=intersection_count)
 
         if face_indices:
-            self._objects_with_intersections.append(obj)
+            state.objects_with_intersections.append(obj)
 
     def _finish_modal(self, context: bpy.types.Context, *, cancelled: bool) -> set[str]:
         self._stop_modal(context)
+        state = self._state
 
         if cancelled:
             self._restore_initial_selection(context)
@@ -137,14 +155,14 @@ class T4P_OT_filter_intersections(ModalTimerMixin, Operator):
             _play_warning_sound(context)
             return {"CANCELLED"}
 
-        for obj in self._objects_with_intersections:
+        for obj in state.objects_with_intersections:
             obj.select_set(True)
 
         new_active = self._determine_new_active()
         context.view_layer.objects.active = new_active
 
-        if not self._objects_with_intersections:
-            if self._mesh_candidates == 0:
+        if not state.objects_with_intersections:
+            if state.mesh_candidates == 0:
                 self.report({"WARNING"}, "No mesh objects selected.")
             else:
                 self.report({"INFO"}, "No self-intersections detected on selected objects.")
@@ -152,7 +170,7 @@ class T4P_OT_filter_intersections(ModalTimerMixin, Operator):
         else:
             self.report(
                 {"INFO"},
-                f"{len(self._objects_with_intersections)} objects of {self._mesh_candidates} with self-intersections.",
+                f"{len(state.objects_with_intersections)} objects of {state.mesh_candidates} with self-intersections.",
             )
             _play_warning_sound(context)
 
@@ -161,28 +179,31 @@ class T4P_OT_filter_intersections(ModalTimerMixin, Operator):
     def _restore_initial_selection(self, context: bpy.types.Context) -> None:
         bpy.ops.object.select_all(action="DESELECT")
 
-        for obj in self._initial_selection:
-            if self._scene is not None and self._scene.objects.get(obj.name) is None:
+        state = self._state
+
+        for obj in state.initial_selection:
+            if state.scene is not None and state.scene.objects.get(obj.name) is None:
                 continue
             obj.select_set(True)
 
         if (
-            self._initial_active
-            and self._scene is not None
-            and self._scene.objects.get(self._initial_active.name) is not None
+            state.initial_active
+            and state.scene is not None
+            and state.scene.objects.get(state.initial_active.name) is not None
         ):
-            context.view_layer.objects.active = self._initial_active
+            context.view_layer.objects.active = state.initial_active
         else:
             context.view_layer.objects.active = None
 
     def _determine_new_active(self) -> bpy.types.Object | None:
+        state = self._state
         if (
-            self._initial_active
-            and self._initial_active in self._objects_with_intersections
+            state.initial_active
+            and state.initial_active in state.objects_with_intersections
         ):
-            return self._initial_active
-        if self._objects_with_intersections:
-            return self._objects_with_intersections[0]
+            return state.initial_active
+        if state.objects_with_intersections:
+            return state.objects_with_intersections[0]
         return None
 
 

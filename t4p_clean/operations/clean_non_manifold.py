@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import bmesh
 import bpy
 from bpy.types import Operator
@@ -17,6 +19,22 @@ from ..main import (
     select_non_manifold_verts,
 )
 from .modal_utils import ModalTimerMixin
+
+
+@dataclass
+class _CleanNonManifoldState:
+    """Mutable state tracked while cleaning non-manifold geometry."""
+
+    objects_to_process: list[bpy.types.Object] = field(default_factory=list)
+    current_index: int = 0
+    initial_active: bpy.types.Object | None = None
+    initial_selection: list[bpy.types.Object] = field(default_factory=list)
+    scene: bpy.types.Scene | None = None
+    num_candidates: int = 0
+    num_fine: int = 0
+    num_failed: int = 0
+    num_fixed: int = 0
+    num_worse: int = 0
 
 
 def _clean_object_non_manifold(
@@ -264,16 +282,11 @@ class T4P_OT_clean_non_manifold(ModalTimerMixin, Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def __init__(self) -> None:
-        self._objects_to_process: list[bpy.types.Object] = []
-        self._current_index = 0
-        self._initial_active: bpy.types.Object | None = None
-        self._initial_selection: list[bpy.types.Object] = []
-        self._scene: bpy.types.Scene | None = None
-        self._num_candidates = 0
-        self._num_fine = 0
-        self._num_failed = 0
-        self._num_fixed = 0
-        self._num_worse = 0
+        object.__setattr__(self, "_clean_non_manifold_state", _CleanNonManifoldState())
+
+    @property
+    def _state(self) -> _CleanNonManifoldState:
+        return object.__getattribute__(self, "_clean_non_manifold_state")
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event):
         return self._begin(context)
@@ -288,61 +301,65 @@ class T4P_OT_clean_non_manifold(ModalTimerMixin, Operator):
         if event.type != "TIMER":
             return {"RUNNING_MODAL"}
 
-        if self._current_index >= len(self._objects_to_process):
+        state = self._state
+        if state.current_index >= len(state.objects_to_process):
             return self._finish_modal(context, cancelled=False)
 
-        obj = self._objects_to_process[self._current_index]
+        obj = state.objects_to_process[state.current_index]
         self._process_object(context, obj)
-        self._current_index += 1
-        self._update_modal_progress(self._current_index)
+        state.current_index += 1
+        self._update_modal_progress(state.current_index)
         return {"RUNNING_MODAL"}
 
     def _begin(self, context: bpy.types.Context):
         self._reset_state()
+        state = self._state
         if context.mode != "OBJECT":
             self.report({"ERROR"}, "Switch to Object mode to clean non-manifold meshes.")
             return {"CANCELLED"}
 
-        self._initial_selection = list(context.selected_objects)
-        if not self._initial_selection:
+        state.initial_selection = list(context.selected_objects)
+        if not state.initial_selection:
             self.report({"INFO"}, "No objects selected.")
             return {"FINISHED"}
 
-        self._initial_active = context.view_layer.objects.active
-        self._scene = context.scene
-        self._objects_to_process = [
+        state.initial_active = context.view_layer.objects.active
+        state.scene = context.scene
+        state.objects_to_process = [
             obj
-            for obj in self._initial_selection
+            for obj in state.initial_selection
             if obj.type == "MESH"
             and obj.data is not None
             and (
-                self._scene is None
-                or self._scene.objects.get(obj.name) is not None
+                state.scene is None
+                or state.scene.objects.get(obj.name) is not None
             )
         ]
-        self._num_candidates = len(self._objects_to_process)
+        state.num_candidates = len(state.objects_to_process)
 
         bpy.ops.object.select_all(action="DESELECT")
 
-        if not self._objects_to_process:
+        if not state.objects_to_process:
             return self._finish_modal(context, cancelled=False)
 
-        return self._start_modal(context, self._num_candidates)
+        return self._start_modal(context, state.num_candidates)
 
     def _reset_state(self) -> None:
-        self._objects_to_process = []
-        self._current_index = 0
-        self._initial_active = None
-        self._initial_selection = []
-        self._scene = None
-        self._num_candidates = 0
-        self._num_fine = 0
-        self._num_failed = 0
-        self._num_fixed = 0
-        self._num_worse = 0
+        state = self._state
+        state.objects_to_process.clear()
+        state.current_index = 0
+        state.initial_active = None
+        state.initial_selection.clear()
+        state.scene = None
+        state.num_candidates = 0
+        state.num_fine = 0
+        state.num_failed = 0
+        state.num_fixed = 0
+        state.num_worse = 0
 
     def _process_object(self, context: bpy.types.Context, obj: bpy.types.Object) -> None:
-        if self._scene is not None and self._scene.objects.get(obj.name) is None:
+        state = self._state
+        if state.scene is not None and state.scene.objects.get(obj.name) is None:
             return
 
         context.view_layer.objects.active = obj
@@ -351,16 +368,17 @@ class T4P_OT_clean_non_manifold(ModalTimerMixin, Operator):
         changed, clean, worse = _clean_object_non_manifold(obj, 0.001, 100)
 
         if clean and not changed:
-            self._num_fine += 1
+            state.num_fine += 1
         elif clean and changed:
-            self._num_fixed += 1
+            state.num_fixed += 1
         elif not clean and changed:
-            self._num_failed += 1
+            state.num_failed += 1
         if worse:
-            self._num_worse += 1
+            state.num_worse += 1
 
     def _finish_modal(self, context: bpy.types.Context, *, cancelled: bool) -> set[str]:
         self._stop_modal(context)
+        state = self._state
 
         if cancelled:
             self._restore_initial_selection(context)
@@ -377,12 +395,13 @@ class T4P_OT_clean_non_manifold(ModalTimerMixin, Operator):
 
     def _restore_initial_selection(self, context: bpy.types.Context) -> None:
         bpy.ops.object.select_all(action="DESELECT")
-        if not self._initial_selection:
+        state = self._state
+        if not state.initial_selection:
             context.view_layer.objects.active = None
             return
 
-        scene = self._scene
-        for obj in self._initial_selection:
+        scene = state.scene
+        for obj in state.initial_selection:
             if scene is not None and scene.objects.get(obj.name) is None:
                 continue
             obj.select_set(True)
@@ -390,32 +409,34 @@ class T4P_OT_clean_non_manifold(ModalTimerMixin, Operator):
         self._restore_active_object(context)
 
     def _restore_active_object(self, context: bpy.types.Context) -> None:
-        scene = self._scene
+        state = self._state
+        scene = state.scene
         if (
-            self._initial_active
-            and (scene is None or scene.objects.get(self._initial_active.name) is not None)
+            state.initial_active
+            and (scene is None or scene.objects.get(state.initial_active.name) is not None)
         ):
-            context.view_layer.objects.active = self._initial_active
+            context.view_layer.objects.active = state.initial_active
         else:
             context.view_layer.objects.active = None
 
     def _report_results(self, context: bpy.types.Context) -> None:
-        if self._num_candidates == 0:
+        state = self._state
+        if state.num_candidates == 0:
             self.report({"INFO"}, "No mesh objects selected.")
-        elif self._num_failed == 0 and self._num_fixed > 0 and self._num_worse == 0:
-            self.report({"INFO"}, f"Fixed all on {self._num_fixed} objects")
-        elif self._num_fixed > 0 or (self._num_failed > 0 and self._num_worse == 0):
+        elif state.num_failed == 0 and state.num_fixed > 0 and state.num_worse == 0:
+            self.report({"INFO"}, f"Fixed all on {state.num_fixed} objects")
+        elif state.num_fixed > 0 or (state.num_failed > 0 and state.num_worse == 0):
             self.report(
                 {"WARNING"},
-                f"Cleaned {self._num_candidates} objects, {self._num_fixed} clean",
+                f"Cleaned {state.num_candidates} objects, {state.num_fixed} clean",
             )
-        elif self._num_worse > 0:
+        elif state.num_worse > 0:
             self.report(
                 {"ERROR"},
-                f"Cleaned {self._num_candidates} objects, but {self._num_worse} is worse",
+                f"Cleaned {state.num_candidates} objects, but {state.num_worse} is worse",
             )
 
-        if self._num_failed > 0 or self._num_worse > 0:
+        if state.num_failed > 0 or state.num_worse > 0:
             _play_warning_sound(context)
         else:
             _play_happy_sound(context)

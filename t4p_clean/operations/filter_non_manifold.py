@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 import bmesh
 import bpy
 from bpy.types import Operator
@@ -18,6 +20,19 @@ from ..main import (
 from .modal_utils import ModalTimerMixin
 
 
+@dataclass
+class _FilterNonManifoldState:
+    """Mutable state tracked while filtering non-manifold meshes."""
+
+    objects_to_process: list[bpy.types.Object] = field(default_factory=list)
+    current_index: int = 0
+    initial_active: bpy.types.Object | None = None
+    initial_selection: list[bpy.types.Object] = field(default_factory=list)
+    non_manifold_objects: list[bpy.types.Object] = field(default_factory=list)
+    mesh_candidates: int = 0
+    scene: bpy.types.Scene | None = None
+
+
 class T4P_OT_filter_non_manifold(ModalTimerMixin, Operator):
     """Deselect mesh objects that contain non-manifold geometry."""
 
@@ -28,13 +43,11 @@ class T4P_OT_filter_non_manifold(ModalTimerMixin, Operator):
     t4p_disable_long_running_sound = True
 
     def __init__(self) -> None:
-        self._objects_to_process: list[bpy.types.Object] = []
-        self._current_index = 0
-        self._initial_active: bpy.types.Object | None = None
-        self._initial_selection: list[bpy.types.Object] = []
-        self._non_manifold_objects: list[bpy.types.Object] = []
-        self._mesh_candidates = 0
-        self._scene: bpy.types.Scene | None = None
+        object.__setattr__(self, "_filter_non_manifold_state", _FilterNonManifoldState())
+
+    @property
+    def _state(self) -> _FilterNonManifoldState:
+        return object.__getattribute__(self, "_filter_non_manifold_state")
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event):
         return self._begin(context)
@@ -49,17 +62,19 @@ class T4P_OT_filter_non_manifold(ModalTimerMixin, Operator):
         if event.type != "TIMER":
             return {"RUNNING_MODAL"}
 
-        if self._current_index >= len(self._objects_to_process):
+        state = self._state
+        if state.current_index >= len(state.objects_to_process):
             return self._finish_modal(context, cancelled=False)
 
-        obj = self._objects_to_process[self._current_index]
+        obj = state.objects_to_process[state.current_index]
         self._process_object(context, obj)
-        self._current_index += 1
-        self._update_modal_progress(self._current_index)
+        state.current_index += 1
+        self._update_modal_progress(state.current_index)
         return {"RUNNING_MODAL"}
 
     def _begin(self, context: bpy.types.Context):
         self._reset_state()
+        state = self._state
         if context.mode != "OBJECT":
             self.report({"ERROR"}, "Switch to Object mode to filter non-manifold meshes.")
             return {"CANCELLED"}
@@ -69,36 +84,38 @@ class T4P_OT_filter_non_manifold(ModalTimerMixin, Operator):
             self.report({"INFO"}, "No objects selected.")
             return {"FINISHED"}
 
-        self._initial_active = context.view_layer.objects.active
-        self._initial_selection = selected_objects
-        self._objects_to_process = selected_objects
-        self._scene = context.scene
+        state.initial_active = context.view_layer.objects.active
+        state.initial_selection = selected_objects
+        state.objects_to_process = selected_objects
+        state.scene = context.scene
 
         bpy.ops.object.select_all(action="DESELECT")
 
         return self._start_modal(context, len(selected_objects))
 
     def _reset_state(self) -> None:
-        self._objects_to_process = []
-        self._current_index = 0
-        self._initial_active = None
-        self._initial_selection = []
-        self._non_manifold_objects = []
-        self._mesh_candidates = 0
-        self._scene = None
+        state = self._state
+        state.objects_to_process.clear()
+        state.current_index = 0
+        state.initial_active = None
+        state.initial_selection.clear()
+        state.non_manifold_objects.clear()
+        state.mesh_candidates = 0
+        state.scene = None
 
     def _process_object(self, context: bpy.types.Context, obj: bpy.types.Object) -> None:
+        state = self._state
         if obj.type != "MESH" or obj.data is None:
             return
 
-        if self._scene is not None and self._scene.objects.get(obj.name) is None:
+        if state.scene is not None and state.scene.objects.get(obj.name) is None:
             return
 
-        self._mesh_candidates += 1
+        state.mesh_candidates += 1
         cached_count = get_cached_non_manifold_count(obj)
         if cached_count is not None:
             if cached_count > 0:
-                self._non_manifold_objects.append(obj)
+                state.non_manifold_objects.append(obj)
             return
 
         context.view_layer.objects.active = obj
@@ -119,10 +136,11 @@ class T4P_OT_filter_non_manifold(ModalTimerMixin, Operator):
         set_object_analysis_stats(obj, non_manifold_count=non_manifold_count)
 
         if non_manifold_count > 0:
-            self._non_manifold_objects.append(obj)
+            state.non_manifold_objects.append(obj)
 
     def _finish_modal(self, context: bpy.types.Context, *, cancelled: bool) -> set[str]:
         self._stop_modal(context)
+        state = self._state
 
         if cancelled:
             self._restore_initial_selection(context)
@@ -133,24 +151,24 @@ class T4P_OT_filter_non_manifold(ModalTimerMixin, Operator):
             _play_warning_sound(context)
             return {"CANCELLED"}
 
-        for obj in self._non_manifold_objects:
+        for obj in state.non_manifold_objects:
             obj.select_set(True)
 
-        remaining_selected = [obj for obj in self._non_manifold_objects if obj.select_get()]
+        remaining_selected = [obj for obj in state.non_manifold_objects if obj.select_get()]
         self._assign_new_active(context, remaining_selected)
 
-        if self._mesh_candidates == 0:
+        if state.mesh_candidates == 0:
             self.report({"INFO"}, "No mesh objects selected.")
-        elif not self._non_manifold_objects:
+        elif not state.non_manifold_objects:
             self.report({"INFO"}, "All checked mesh objects are manifold.")
             _play_happy_sound(context)
-        elif len(self._non_manifold_objects) == self._mesh_candidates:
+        elif len(state.non_manifold_objects) == state.mesh_candidates:
             self.report({"WARNING"}, "All checked mesh objects are not manifold.")
             _play_warning_sound(context)
         else:
             self.report(
                 {"WARNING"},
-                f"Deselected non-manifold meshes, {len(self._non_manifold_objects)} remain.",
+                f"Deselected non-manifold meshes, {len(state.non_manifold_objects)} remain.",
             )
             _play_warning_sound(context)
 
@@ -159,30 +177,33 @@ class T4P_OT_filter_non_manifold(ModalTimerMixin, Operator):
     def _restore_initial_selection(self, context: bpy.types.Context) -> None:
         bpy.ops.object.select_all(action="DESELECT")
 
-        for obj in self._initial_selection:
-            if self._scene is not None and self._scene.objects.get(obj.name) is None:
+        state = self._state
+
+        for obj in state.initial_selection:
+            if state.scene is not None and state.scene.objects.get(obj.name) is None:
                 continue
             obj.select_set(True)
 
         if (
-            self._initial_active
-            and self._scene is not None
-            and self._scene.objects.get(self._initial_active.name) is not None
+            state.initial_active
+            and state.scene is not None
+            and state.scene.objects.get(state.initial_active.name) is not None
         ):
-            context.view_layer.objects.active = self._initial_active
+            context.view_layer.objects.active = state.initial_active
         else:
             context.view_layer.objects.active = None
 
     def _assign_new_active(
         self, context: bpy.types.Context, remaining_selected: list[bpy.types.Object]
     ) -> None:
+        state = self._state
         if (
-            self._initial_active
-            and self._scene is not None
-            and self._scene.objects.get(self._initial_active.name) is not None
-            and self._initial_active in remaining_selected
+            state.initial_active
+            and state.scene is not None
+            and state.scene.objects.get(state.initial_active.name) is not None
+            and state.initial_active in remaining_selected
         ):
-            context.view_layer.objects.active = self._initial_active
+            context.view_layer.objects.active = state.initial_active
         elif remaining_selected:
             context.view_layer.objects.active = remaining_selected[0]
         else:
