@@ -21,14 +21,11 @@ if exist "%DIST_DIR%" (
 )
 mkdir "%DIST_DIR%" >nul
 
-timeout /t 1 /nobreak >nul
-
 echo Creating ZIP file...
 echo.
 powershell -nologo -noprofile -command ^
     "Compress-Archive -Path '%SRC_DIR%\*' -DestinationPath '%ZIP_PATH%' -Force"
 
-timeout /t 1 /nobreak >nul
 
 if %errorlevel% neq 0 (
     echo.

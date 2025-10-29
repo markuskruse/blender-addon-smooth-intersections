@@ -88,8 +88,6 @@ class T4P_OT_analyze_selection(ModalTimerMixin, Operator):
     )
     bl_options = {"REGISTER", "UNDO"}
 
-    def __init__(self) -> None:
-        object.__setattr__(self, "_analysis_state", _AnalysisState())
 
     @property
     def _state(self) -> _AnalysisState:
@@ -119,6 +117,7 @@ class T4P_OT_analyze_selection(ModalTimerMixin, Operator):
         return {"RUNNING_MODAL"}
 
     def _begin(self, context: bpy.types.Context):
+        self._analysis_state = _AnalysisState()
         self._reset_state()
         state = self._state
         if context.mode != "OBJECT":

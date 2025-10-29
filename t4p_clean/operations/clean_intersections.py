@@ -20,7 +20,6 @@ from ..main import (
     mesh_checksum_fast,
     select_faces,
 )
-from ..split_long import split_intersections
 from .modal_utils import ModalTimerMixin
 
 
@@ -314,8 +313,6 @@ class T4P_OT_smooth_intersections(ModalTimerMixin, Operator):
     bl_description = "Clean intersecting faces for selected mesh objects"
     bl_options = {"REGISTER", "UNDO"}
 
-    def __init__(self) -> None:
-        object.__setattr__(self, "_clean_intersections_state", _CleanIntersectionsState())
 
     @property
     def _state(self) -> _CleanIntersectionsState:
@@ -345,6 +342,7 @@ class T4P_OT_smooth_intersections(ModalTimerMixin, Operator):
         return {"RUNNING_MODAL"}
 
     def _begin(self, context: bpy.types.Context):
+        self._clean_intersections_state = _CleanIntersectionsState()
         self._reset_state()
         state = self._state
         if context.mode != "OBJECT":

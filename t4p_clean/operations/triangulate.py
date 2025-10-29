@@ -32,8 +32,6 @@ class T4P_OT_triangulate_selected(ModalTimerMixin, Operator):
     bl_description = "Triangulate meshes for all selected mesh objects"
     bl_options = {"REGISTER", "UNDO"}
 
-    def __init__(self) -> None:
-        object.__setattr__(self, "_triangulate_state", _TriangulateState())
 
     @property
     def _state(self) -> _TriangulateState:
@@ -63,6 +61,7 @@ class T4P_OT_triangulate_selected(ModalTimerMixin, Operator):
         return {"RUNNING_MODAL"}
 
     def _begin(self, context: bpy.types.Context):
+        self._triangulate_state = _TriangulateState()
         self._reset_state()
         state = self._state
         if context.mode != "OBJECT":

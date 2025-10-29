@@ -66,7 +66,7 @@ def update_window_manager_progress(
     if window_manager is None:
         return
 
-    window_manager.progress(current_item)
+    window_manager.progress_update(current_item)
 
 
 class T4PAddonPreferences(bpy.types.AddonPreferences):

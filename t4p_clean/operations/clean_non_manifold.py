@@ -281,8 +281,6 @@ class T4P_OT_clean_non_manifold(ModalTimerMixin, Operator):
     bl_description = "Remove small islands, loose elements, and holes on selected meshes"
     bl_options = {"REGISTER", "UNDO"}
 
-    def __init__(self) -> None:
-        object.__setattr__(self, "_clean_non_manifold_state", _CleanNonManifoldState())
 
     @property
     def _state(self) -> _CleanNonManifoldState:
@@ -312,6 +310,7 @@ class T4P_OT_clean_non_manifold(ModalTimerMixin, Operator):
         return {"RUNNING_MODAL"}
 
     def _begin(self, context: bpy.types.Context):
+        self._clean_non_manifold_state = _CleanNonManifoldState()
         self._reset_state()
         state = self._state
         if context.mode != "OBJECT":

@@ -41,8 +41,6 @@ class T4P_OT_filter_intersections(ModalTimerMixin, Operator):
     bl_options = {"REGISTER", "UNDO"}
     t4p_disable_long_running_sound = True
 
-    def __init__(self) -> None:
-        object.__setattr__(self, "_filter_intersections_state", _FilterIntersectionsState())
 
     @property
     def _state(self) -> _FilterIntersectionsState:
@@ -72,6 +70,7 @@ class T4P_OT_filter_intersections(ModalTimerMixin, Operator):
         return {"RUNNING_MODAL"}
 
     def _begin(self, context: bpy.types.Context):
+        self._filter_intersections_state = _FilterIntersectionsState()
         self._reset_state()
         state = self._state
         if context.mode != "OBJECT":

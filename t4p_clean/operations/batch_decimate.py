@@ -32,8 +32,6 @@ class T4P_OT_batch_decimate(ModalTimerMixin, Operator):
     bl_description = "Apply the decimate modifier to all selected mesh objects"
     bl_options = {"REGISTER", "UNDO"}
 
-    def __init__(self) -> None:
-        object.__setattr__(self, "_batch_decimate_state", _BatchDecimateState())
 
     @property
     def _state(self) -> _BatchDecimateState:
@@ -63,6 +61,7 @@ class T4P_OT_batch_decimate(ModalTimerMixin, Operator):
         return {"RUNNING_MODAL"}
 
     def _begin(self, context: bpy.types.Context):
+        self._batch_decimate_state = _BatchDecimateState()
         self._reset_state()
         state = self._state
         if context.mode != "OBJECT":

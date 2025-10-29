@@ -42,8 +42,6 @@ class T4P_OT_filter_non_manifold(ModalTimerMixin, Operator):
     bl_options = {"REGISTER", "UNDO"}
     t4p_disable_long_running_sound = True
 
-    def __init__(self) -> None:
-        object.__setattr__(self, "_filter_non_manifold_state", _FilterNonManifoldState())
 
     @property
     def _state(self) -> _FilterNonManifoldState:
@@ -73,6 +71,7 @@ class T4P_OT_filter_non_manifold(ModalTimerMixin, Operator):
         return {"RUNNING_MODAL"}
 
     def _begin(self, context: bpy.types.Context):
+        self._filter_non_manifold_state = _FilterNonManifoldState()
         self._reset_state()
         state = self._state
         if context.mode != "OBJECT":
