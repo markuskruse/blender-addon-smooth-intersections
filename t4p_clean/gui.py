@@ -68,7 +68,14 @@ def _draw_modal_progress(layout, window_manager) -> None:
 
     progress = 1.0 if total <= 0 else min(max(float(current) / float(total), 0.0), 1.0)
 
-    layout.template_progress_bar(progress, text=label)
+    progress_drawer = getattr(layout, "template_progress_bar", None)
+    if progress_drawer is None:
+        progress_drawer = getattr(layout, "template_progressbar", None)
+
+    if progress_drawer is None:
+        return
+
+    progress_drawer(progress, text=label)
 
 from .debug import profile_module
 from .main import (
