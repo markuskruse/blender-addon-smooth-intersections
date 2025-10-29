@@ -34,6 +34,35 @@ def _count_self_intersections(mesh: bpy.types.Mesh) -> int:
     return len(bmesh_get_intersecting_face_indices(bm))
 
 
+def _object_is_available(
+    obj: bpy.types.Object | None, scene: bpy.types.Scene | None
+) -> bool:
+    if obj is None:
+        return False
+    if scene is None:
+        return True
+    return scene.objects.get(obj.name) is not None
+
+
+def _restore_object_selection(
+    context: bpy.types.Context,
+    original_selection: list[bpy.types.Object],
+    initial_active: bpy.types.Object | None,
+    scene: bpy.types.Scene | None,
+) -> None:
+    bpy.ops.object.select_all(action="DESELECT")
+
+    for obj in original_selection:
+        if not _object_is_available(obj, scene):
+            continue
+        obj.select_set(True)
+
+    if _object_is_available(initial_active, scene):
+        context.view_layer.objects.active = initial_active
+    else:
+        context.view_layer.objects.active = None
+
+
 class T4P_OT_analyze_selection(Operator):
     """Analyze selected mesh objects and store non-manifold and intersection counts."""
 
@@ -66,9 +95,9 @@ class T4P_OT_analyze_selection(Operator):
             self.report({"INFO"}, "No mesh objects selected.")
             return {"FINISHED"}
 
-        bpy.ops.object.select_all(action="DESELECT")
-
         initial_active = context.view_layer.objects.active
+
+        bpy.ops.object.select_all(action="DESELECT")
         analyses: list[tuple[str, int, int]] = []
 
         for obj in mesh_objects:
@@ -98,14 +127,12 @@ class T4P_OT_analyze_selection(Operator):
 
             analyses.append((obj.name, non_manifold_count, intersection_count))
 
-        if (
-            initial_active
-            and scene is not None
-            and scene.objects.get(initial_active.name) is not None
-        ):
-            context.view_layer.objects.active = initial_active
-        else:
-            context.view_layer.objects.active = None
+        _restore_object_selection(
+            context,
+            original_selection=selected_objects,
+            initial_active=initial_active,
+            scene=scene,
+        )
 
         if analyses:
             summary = "; ".join(
