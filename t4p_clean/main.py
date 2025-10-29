@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import array
 import hashlib
+from contextlib import contextmanager
 from typing import MutableSequence
 
 import bmesh
@@ -33,6 +34,39 @@ FOCUS_INTERSECTIONS_OPERATOR_IDNAME = "t4p_smooth_intersection.focus_intersectio
 FOCUS_NON_MANIFOLD_OPERATOR_IDNAME = "t4p_smooth_intersection.focus_non_manifold"
 TRIANGULATE_OPERATOR_IDNAME = "t4p_smooth_intersection.triangulate_selected"
 SPLIT_LONG_FACES_OPERATOR_IDNAME = "t4p_smooth_intersection.split_long_faces"
+
+
+@contextmanager
+def window_manager_progress(
+    context: bpy.types.Context | None, total_items: int
+):
+    """Provide a context manager for reporting progress to the window manager."""
+
+    if context is None or total_items <= 0:
+        yield None
+        return
+
+    window_manager = getattr(context, "window_manager", None)
+    if window_manager is None:
+        yield None
+        return
+
+    window_manager.progress_begin(0, total_items)
+    try:
+        yield window_manager
+    finally:
+        window_manager.progress_end()
+
+
+def update_window_manager_progress(
+    window_manager: bpy.types.WindowManager | None, current_item: int
+) -> None:
+    """Update the active progress indicator when possible."""
+
+    if window_manager is None:
+        return
+
+    window_manager.progress(current_item)
 
 
 class T4PAddonPreferences(bpy.types.AddonPreferences):

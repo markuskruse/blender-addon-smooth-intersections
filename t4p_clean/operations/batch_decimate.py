@@ -7,7 +7,11 @@ from bpy.types import Operator
 
 from ..audio import _play_happy_sound
 from ..debug import profile_module
-from ..main import BATCH_DECIMATE_OPERATOR_IDNAME
+from ..main import (
+    BATCH_DECIMATE_OPERATOR_IDNAME,
+    update_window_manager_progress,
+    window_manager_progress,
+)
 
 
 class T4P_OT_batch_decimate(Operator):
@@ -46,27 +50,32 @@ class T4P_OT_batch_decimate(Operator):
         initial_active = context.view_layer.objects.active
         decimated_objects: list[str] = []
 
-        for obj in mesh_objects:
-            context.view_layer.objects.active = obj
-            try:
-                modifier = obj.modifiers.new(name="T4P_BatchDecimate", type="DECIMATE")
-            except (RuntimeError, ValueError):
-                continue
+        total_mesh_objects = len(mesh_objects)
 
-            modifier.show_viewport = False
-            modifier.show_render = False
-            if hasattr(modifier, "decimate_type"):
-                modifier.decimate_type = "COLLAPSE"
-            modifier.ratio = ratio
+        with window_manager_progress(context, total_mesh_objects) as progress:
+            for index, obj in enumerate(mesh_objects):
+                update_window_manager_progress(progress, index)
 
-            try:
-                bpy.ops.object.modifier_apply(modifier=modifier.name)
-            except RuntimeError:
-                if obj.modifiers.get(modifier.name) is not None:
-                    obj.modifiers.remove(modifier)
-                continue
+                context.view_layer.objects.active = obj
+                try:
+                    modifier = obj.modifiers.new(name="T4P_BatchDecimate", type="DECIMATE")
+                except (RuntimeError, ValueError):
+                    continue
 
-            decimated_objects.append(obj.name)
+                modifier.show_viewport = False
+                modifier.show_render = False
+                if hasattr(modifier, "decimate_type"):
+                    modifier.decimate_type = "COLLAPSE"
+                modifier.ratio = ratio
+
+                try:
+                    bpy.ops.object.modifier_apply(modifier=modifier.name)
+                except RuntimeError:
+                    if obj.modifiers.get(modifier.name) is not None:
+                        obj.modifiers.remove(modifier)
+                    continue
+
+                decimated_objects.append(obj.name)
 
         if initial_active and context.scene.objects.get(initial_active.name) is not None:
             context.view_layer.objects.active = initial_active

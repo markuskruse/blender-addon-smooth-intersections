@@ -15,9 +15,11 @@ from ..main import (
     SMOOTH_OPERATOR_IDNAME,
     _triangulate_bmesh,
     bmesh_get_intersecting_face_indices,
+    get_bmesh,
     mesh_checksum_fast,
     select_faces,
-    get_bmesh,
+    update_window_manager_progress,
+    window_manager_progress,
 )
 from ..audio import _play_happy_sound, _play_warning_sound
 from ..split_long import split_intersections
@@ -320,20 +322,27 @@ class T4P_OT_smooth_intersections(Operator):
                 attempt_limit = 5
             attempt_limit = max(1, attempt_limit)
 
-        for obj in initial_selection:
-            if obj.type != "MESH" or obj.data is None:
-                continue
+        candidate_objects = [
+            obj
+            for obj in initial_selection
+            if obj.type == "MESH"
+            and obj.data is not None
+            and context.view_layer.objects.get(obj.name) is not None
+        ]
 
-            if context.view_layer.objects.get(obj.name) is None:
-                continue
+        total_candidates = len(candidate_objects)
 
-            context.view_layer.objects.active = obj
-            obj.select_set(True)
-            attempts = _clean_mesh_intersections_wrapper(obj, attempt_limit)
-            obj.select_set(False)
+        with window_manager_progress(context, total_candidates) as progress:
+            for index, obj in enumerate(candidate_objects):
+                update_window_manager_progress(progress, index)
 
-            if attempts:
-                smoothed_objects.append(obj.name)
+                context.view_layer.objects.active = obj
+                obj.select_set(True)
+                attempts = _clean_mesh_intersections_wrapper(obj, attempt_limit)
+                obj.select_set(False)
+
+                if attempts:
+                    smoothed_objects.append(obj.name)
 
         bpy.ops.object.select_all(action="DESELECT")
 
