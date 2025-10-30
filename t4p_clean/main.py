@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import array
 import hashlib
+import time
 from contextlib import contextmanager
 from typing import MutableSequence
 
@@ -34,6 +35,11 @@ FOCUS_INTERSECTIONS_OPERATOR_IDNAME = "t4p_smooth_intersection.focus_intersectio
 FOCUS_NON_MANIFOLD_OPERATOR_IDNAME = "t4p_smooth_intersection.focus_non_manifold"
 TRIANGULATE_OPERATOR_IDNAME = "t4p_smooth_intersection.triangulate_selected"
 SPLIT_LONG_FACES_OPERATOR_IDNAME = "t4p_smooth_intersection.split_long_faces"
+
+
+_CHECKSUM_CACHE_VALUE_KEY = "t4p_mesh_checksum_cache_value"
+_CHECKSUM_CACHE_TIME_KEY = "t4p_mesh_checksum_cache_time"
+_CHECKSUM_CACHE_DURATION_SECONDS = 5 * 60
 
 
 @contextmanager
@@ -154,17 +160,90 @@ def count_non_manifold_verts(bm):
     return sum((1 for v in bm.verts if v.select))
 
 
-def calculate_object_mesh_checksum(obj: bpy.types.Object | None) -> int | None:
-    """Return a checksum for the mesh data on ``obj`` if possible."""
+def _clear_cached_mesh_checksum(obj: bpy.types.Object | None) -> None:
+    """Remove cached checksum data stored on ``obj``."""
+
+    if obj is None:
+        return
+
+    if not hasattr(obj, "keys"):
+        return
+
+    for key in (_CHECKSUM_CACHE_VALUE_KEY, _CHECKSUM_CACHE_TIME_KEY):
+        try:
+            if key in obj:
+                del obj[key]
+        except Exception:
+            continue
+
+
+def _set_cached_mesh_checksum(obj: bpy.types.Object | None, checksum: int) -> None:
+    """Store the checksum value and timestamp on ``obj``."""
+
+    if obj is None:
+        return
+
+    if not hasattr(obj, "keys"):
+        return
+
+    try:
+        obj[_CHECKSUM_CACHE_VALUE_KEY] = int(checksum)
+        obj[_CHECKSUM_CACHE_TIME_KEY] = float(time.time())
+    except Exception:
+        _clear_cached_mesh_checksum(obj)
+
+
+def _get_cached_mesh_checksum(obj: bpy.types.Object | None) -> int | None:
+    """Return the cached checksum when it is still valid."""
 
     if obj is None or obj.type != "MESH":
         return None
 
-    mesh = getattr(obj, "data", None)
-    if mesh is None or not hasattr(mesh, "vertices") or not hasattr(mesh, "polygons"):
+    if not hasattr(obj, "get"):
         return None
 
-    return mesh_checksum_fast(obj)
+    cached_value = obj.get(_CHECKSUM_CACHE_VALUE_KEY)
+    cached_time = obj.get(_CHECKSUM_CACHE_TIME_KEY)
+
+    if cached_value is None or cached_time is None:
+        return None
+
+    try:
+        cached_timestamp = float(cached_time)
+    except (TypeError, ValueError):
+        _clear_cached_mesh_checksum(obj)
+        return None
+
+    if time.time() - cached_timestamp > _CHECKSUM_CACHE_DURATION_SECONDS:
+        _clear_cached_mesh_checksum(obj)
+        return None
+
+    try:
+        return int(cached_value)
+    except (TypeError, ValueError):
+        _clear_cached_mesh_checksum(obj)
+        return None
+
+
+def calculate_object_mesh_checksum(obj: bpy.types.Object | None) -> int | None:
+    """Return a checksum for the mesh data on ``obj`` if possible."""
+
+    cached_checksum = _get_cached_mesh_checksum(obj)
+    if cached_checksum is not None:
+        return cached_checksum
+
+    if obj is None or obj.type != "MESH":
+        _clear_cached_mesh_checksum(obj)
+        return None
+
+    mesh = getattr(obj, "data", None)
+    if mesh is None or not hasattr(mesh, "vertices") or not hasattr(mesh, "polygons"):
+        _clear_cached_mesh_checksum(obj)
+        return None
+
+    checksum = mesh_checksum_fast(obj)
+    _set_cached_mesh_checksum(obj, checksum)
+    return checksum
 
 
 def set_object_analysis_stats(
