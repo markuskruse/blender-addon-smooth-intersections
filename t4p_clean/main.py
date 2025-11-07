@@ -387,6 +387,16 @@ def select_faces(face_indices: MutableSequence[int], mesh, bm):
     bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
 
 
+def select_verts(vert_indices: MutableSequence[int], mesh, bm):
+    bm.verts.ensure_lookup_table()
+
+    for i in vert_indices:
+        if 0 <= i < len(bm.verts):
+            bm.verts[i].select_set(True)
+
+    bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+
+
 def get_selected_faces(bm: bmesh.types.BMesh):
     """Return a list of all selected faces in the BMesh."""
     return [f for f in bm.faces if f.select]
