@@ -13,6 +13,7 @@ from ..main import (
     SELECT_NON_MANIFOLD_OPERATOR_IDNAME,
     select_non_manifold_verts,
     select_faces,
+    select_edge,
     select_verts,
     get_bmesh,
     focus_view_on_selected_faces,
@@ -128,8 +129,12 @@ class T4P_OT_focus_non_manifold(Operator):
             first_face = [selected_faces[0].index]
             select_faces(first_face, mesh, bm)
         elif selected_edges:
-            first_face = [selected_edges[0].link_faces[0].index]
-            select_faces(first_face, mesh, bm)
+            if len(selected_edges[0].link_faces):
+                first_face = [selected_edges[0].link_faces[0].index]
+                select_faces(first_face, mesh, bm)
+            else:
+                edge_index = [selected_edges[0].index]
+                select_edge(edge_index, mesh, bm)
         elif selected_verts:
             if len(selected_verts[0].link_faces):
                 first_face = [selected_verts[0].link_faces[0].index]

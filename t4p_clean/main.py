@@ -387,6 +387,16 @@ def select_faces(face_indices: MutableSequence[int], mesh, bm):
     bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
 
 
+def select_edge(edge_indices: MutableSequence[int], mesh, bm):
+    bm.edges.ensure_lookup_table()
+
+    for i in edge_indices:
+        if 0 <= i < len(bm.edges):
+            bm.edges[i].select_set(True)
+
+    bmesh.update_edit_mesh(mesh, loop_triangles=False, destructive=False)
+
+
 def select_verts(vert_indices: MutableSequence[int], mesh, bm):
     bm.verts.ensure_lookup_table()
 
